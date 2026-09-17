@@ -35,3 +35,20 @@ ini_set('display_errors', '0'); // nunca mostrar erros na tela em produção
 ini_set('log_errors', '1');
 
 date_default_timezone_set('America/Sao_Paulo');
+
+/*
+ * Recém-clonado, sem config/config.php, qualquer página levaria a um erro 500
+ * na primeira consulta ao banco. Quem acabou de clonar o repositório vai ao
+ * instalador, não a uma tela branca.
+ *
+ * Não vale para a linha de comando (os scripts em bin/ dão a própria mensagem)
+ * nem para o próprio instalador, que existe justamente para essa situação.
+ */
+if (PHP_SAPI !== 'cli' && !App\Config::existe()) {
+    $scriptAtual = basename($_SERVER['SCRIPT_NAME'] ?? '');
+
+    if ($scriptAtual !== 'install.php') {
+        header('Location: install.php');
+        exit;
+    }
+}

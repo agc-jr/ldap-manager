@@ -17,7 +17,19 @@ use App\Installer;
 use App\Ldap\DomainRepository;
 use App\Ldap\LdapConnection;
 
-if (Installer::instalado()) {
+/*
+ * O bloqueio não pode valer para quem está no meio do wizard: assim que a
+ * etapa 2 cria o administrador, instalado() passa a responder true e a etapa 3
+ * (primeiro domínio) ficaria inacessível — o instalador trancaria a si mesmo.
+ *
+ * A marca de wizard em andamento vive na sessão, então serve a quem começou a
+ * instalação e não a um visitante qualquer. Se a sessão se perder no meio, o
+ * caminho é entrar com o administrador já criado e cadastrar o domínio na tela
+ * Domínios, que faz a mesma coisa.
+ */
+$emAndamento = !empty($_SESSION['instalacao_em_andamento']);
+
+if (Installer::instalado() && !$emAndamento) {
     http_response_code(403);
     $titulo = 'Instalação já concluída';
     $mensagem = 'Este sistema já está instalado. Para reinstalar do zero, remova config/config.php '
@@ -73,6 +85,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         Config::recarregar();
                         Database::reconectar();
                         $_SESSION['instalacao_db'] = $db;
+                        // A partir daqui instalado() responderá true assim que o
+                        // admin for criado; esta marca mantém o wizard acessível
+                        // para quem o começou.
+                        $_SESSION['instalacao_em_andamento'] = true;
                         header('Location: install.php?etapa=2');
                         exit;
                     }
@@ -138,6 +154,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($erros === []) {
                 try {
                     (new DomainRepository())->criar($dados);
+                    // A marca de wizard só cai depois que a tela final for
+                    // exibida; limpá-la aqui faria a própria etapa 4 dar 403.
                     unset($_SESSION['instalacao_db']);
                     header('Location: install.php?etapa=4');
                     exit;
@@ -160,6 +178,12 @@ $etapas = [
     3 => 'Domínio LDAP',
     4 => 'Pronto',
 ];
+
+// Chegou à tela final: encerra o wizard. A partir do próximo acesso, o
+// instalador volta a se recusar a rodar.
+if ($etapa >= 4) {
+    unset($_SESSION['instalacao_em_andamento']);
+}
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
