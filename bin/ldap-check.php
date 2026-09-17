@@ -3,7 +3,7 @@
  * Diagnóstico da conexão com o AD — SOMENTE LEITURA. Não cria, altera nem
  * remove nada no diretório; pode ser rodado em produção com segurança.
  *
- * Uso:  php bin/ldap-check.php
+ * Uso:  php bin/ldap-check.php ["Nome do dominio"]
  *
  * Serve para validar, antes de usar a interface web, se:
  *   - a extensão ldap está habilitada;
@@ -15,7 +15,7 @@
 
 require __DIR__ . '/../src/bootstrap.php';
 
-use App\Config;
+use App\Ldap\DomainRepository;
 use App\Ldap\GroupRepository;
 use App\Ldap\LdapConnection;
 use App\Ldap\UserRepository;
@@ -63,13 +63,46 @@ if (extension_loaded('pdo_mysql')) {
 // ------------------------------------------------------------ configuração
 titulo('2. Configuração');
 
+/*
+ * Os domínios ficam cadastrados no banco. Sem argumento, o diagnóstico roda
+ * sobre o primeiro cadastrado; passe o nome para escolher outro:
+ *   php bin/ldap-check.php "Administrativo"
+ */
 try {
-    $cfg = Config::get('ldap');
+    $dominios = (new DomainRepository())->todos(false);
 } catch (Throwable $e) {
-    erro($e->getMessage());
+    erro('Não foi possível ler os domínios do banco: ' . $e->getMessage());
+    erro('O sistema já foi instalado? Acesse public/install.php pelo navegador.');
     exit(1);
 }
 
+if ($dominios === []) {
+    erro('Nenhum domínio cadastrado. Cadastre um na tela "Domínios" da interface.');
+    exit(1);
+}
+
+$escolhido = $argv[1] ?? null;
+$cfg = null;
+
+foreach ($dominios as $d) {
+    if ($escolhido === null || strcasecmp($d['name'], $escolhido) === 0) {
+        $cfg = $d;
+        break;
+    }
+}
+
+if ($cfg === null) {
+    erro("Domínio \"{$escolhido}\" não encontrado. Cadastrados: "
+        . implode(', ', array_map(static fn ($d) => $d['name'], $dominios)));
+    exit(1);
+}
+
+if (count($dominios) > 1 && $escolhido === null) {
+    aviso('há ' . count($dominios) . ' domínios cadastrados; testando o primeiro. '
+        . 'Passe o nome como argumento para testar outro.');
+}
+
+printf("  domínio ......... %s\n", $cfg['name']);
 printf("  host ............ %s\n", $cfg['host']);
 printf("  port ............ %d\n", $cfg['port']);
 printf("  bind_dn ......... %s\n", $cfg['bind_dn']);
@@ -84,7 +117,7 @@ if ((int) $cfg['port'] !== 636 || !str_starts_with($cfg['host'], 'ldaps://')) {
     aviso('a conexão não é LDAPS - definir/resetar senha (unicodePwd) vai falhar. Use ldaps:// na porta 636.');
 }
 
-if (str_contains($cfg['bind_password'], 'TROQUE')) {
+if (str_contains((string) $cfg["bind_password"], "TROQUE")) {
     erro('bind_password ainda está com o valor de exemplo');
     $falhas++;
 }
@@ -94,7 +127,7 @@ titulo('3. Conexão e autenticação (bind)');
 
 $inicio = microtime(true);
 try {
-    $ldap = new LdapConnection();
+    $ldap = new LdapConnection($cfg);
     ok(sprintf('bind bem-sucedido em %.0f ms', (microtime(true) - $inicio) * 1000));
 } catch (Throwable $e) {
     erro($e->getMessage());
