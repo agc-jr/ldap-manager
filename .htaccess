@@ -3,6 +3,14 @@
 # VirtualHost com DocumentRoot apontando para public/ (veja deploy/), mas
 # esta negacao serve de defesa em profundidade quando isso nao for possivel.
 # Apenas public/ e liberado, pelo .htaccess que existe la dentro.
+#
+# A negacao e no nivel do diretorio de proposito. Ja tentamos nega-la por
+# arquivo (<FilesMatch>) para que abrir a raiz do projeto redirecionasse em vez
+# de devolver 403: a regra vaza para os subdiretorios e derruba o proprio
+# public/, porque restricao por arquivo vence o "Require all granted" de la.
+# Abrir a raiz devolve 403; a aplicacao esta em public/.
+
+Options -Indexes
 
 <IfModule mod_authz_core.c>
     Require all denied
