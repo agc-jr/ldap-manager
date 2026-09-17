@@ -19,7 +19,8 @@ use RuntimeException;
  */
 final class LdapConnection
 {
-    private \LDAP\Connection|resource $conn;
+    /** @var \LDAP\Connection|resource Objeto de conexão em PHP 8.1+, resource em versões antigas */
+    private mixed $conn;
     private string $baseDn;
 
     public function __construct()
@@ -56,7 +57,7 @@ final class LdapConnection
         $this->baseDn = $cfg['base_dn'];
     }
 
-    public function raw(): \LDAP\Connection|resource
+    public function raw(): mixed
     {
         return $this->conn;
     }
