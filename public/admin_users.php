@@ -2,13 +2,18 @@
 require __DIR__ . '/../src/bootstrap.php';
 require __DIR__ . '/includes/flash.php';
 
+use App\Audit\AuditLogger;
 use App\Auth;
 use App\Database;
+use App\Ldap\DomainRepository;
 
 Auth::requireAdmin();
 $pageTitle = 'Operadores da ferramenta';
 $me = Auth::user();
 $pdo = Database::connection();
+
+$dominioRepo = new DomainRepository();
+$dominios = $dominioRepo->todos(false);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create') {
     $username = trim($_POST['username'] ?? '');
@@ -29,11 +34,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
                 'u' => $username, 'f' => $fullName, 'e' => $email ?: null,
                 'p' => password_hash($password, PASSWORD_BCRYPT), 'r' => $role,
             ]);
+            // Vincula os domínios escolhidos. Sem isso o operador entra e não
+            // enxerga nada — o admin não precisa de vínculo, vê todos.
+            $novoId = (int) $pdo->lastInsertId();
+            if ($role === 'operator') {
+                $dominioRepo->definirDominiosDoUsuario($novoId, array_map('intval', (array) ($_POST['dominios'] ?? [])));
+            }
+
             flash('success', "Operador \"{$username}\" criado.");
         } catch (\PDOException $e) {
             flash('error', 'Não foi possível criar: usuário já existe?');
         }
     }
+    header('Location: admin_users.php');
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'dominios') {
+    $id = (int) ($_POST['id'] ?? 0);
+    $escolhidos = array_map('intval', (array) ($_POST['dominios'] ?? []));
+
+    $alvo = $pdo->prepare('SELECT username, role FROM app_users WHERE id = :id');
+    $alvo->execute(['id' => $id]);
+    $dadosAlvo = $alvo->fetch();
+
+    if (!$dadosAlvo) {
+        flash('error', 'Operador não encontrado.');
+    } elseif ($dadosAlvo['role'] === 'admin') {
+        // Admin enxerga tudo por definição; gravar vínculo aqui daria a falsa
+        // impressão de que a lista o restringe.
+        flash('error', 'Administradores acessam todos os domínios; não há o que restringir.');
+    } else {
+        $dominioRepo->definirDominiosDoUsuario($id, $escolhidos);
+        AuditLogger::log((int) $me['id'], $me['username'], 'operator.domains', 'app_user', $dadosAlvo['username'], [
+            'dominios' => $escolhidos,
+        ]);
+        flash('success', "Domínios de \"{$dadosAlvo['username']}\" atualizados.");
+    }
+
     header('Location: admin_users.php');
     exit;
 }
@@ -52,10 +90,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggl
 
 $appUsers = $pdo->query('SELECT * FROM app_users ORDER BY username')->fetchAll();
 
+// Quais domínios cada operador já enxerga, para marcar as caixas.
+$dominiosPorUsuario = [];
+foreach ($appUsers as $u) {
+    if ($u['role'] !== 'admin') {
+        $dominiosPorUsuario[(int) $u['id']] = $dominioRepo->idsDoUsuario((int) $u['id']);
+    }
+}
+
 require __DIR__ . '/includes/layout_top.php';
 ?>
 
-<div x-data="{ showCreate: false }">
+<div x-data="{
+       showCreate: false,
+       papelNovo: 'operator',
+       dominiosAlvo: null,
+       dominiosMarcados: [],
+       editarDominios(id, nome, ids) {
+         this.dominiosAlvo = { id, nome };
+         // Cópia: mexer nas caixas não deve alterar a tabela por trás do modal
+         // antes de salvar.
+         this.dominiosMarcados = [...ids];
+       },
+     }">
   <div class="flex justify-between items-center mb-5">
     <p class="text-sm text-slate-500">Contas que podem acessar esta ferramenta (não confundir com contas do domínio)</p>
     <button @click="showCreate = true"
@@ -71,6 +128,7 @@ require __DIR__ . '/includes/layout_top.php';
           <th class="px-5 py-3">Usuário</th>
           <th class="px-5 py-3">Nome</th>
           <th class="px-5 py-3">Papel</th>
+          <th class="px-5 py-3">Domínios</th>
           <th class="px-5 py-3">Status</th>
           <th class="px-5 py-3">Último login</th>
           <th class="px-5 py-3 text-right">Ações</th>
@@ -82,6 +140,23 @@ require __DIR__ . '/includes/layout_top.php';
             <td class="px-5 py-3 font-medium"><?= htmlspecialchars($u['username']) ?></td>
             <td class="px-5 py-3 text-slate-300"><?= htmlspecialchars($u['full_name']) ?></td>
             <td class="px-5 py-3 capitalize text-slate-400"><?= htmlspecialchars($u['role']) ?></td>
+            <td class="px-5 py-3 text-xs">
+              <?php if ($u['role'] === 'admin'): ?>
+                <span class="text-slate-500">todos</span>
+              <?php else:
+                $ids = $dominiosPorUsuario[(int) $u['id']] ?? [];
+                $nomes = array_values(array_map(
+                    fn ($d) => $d['name'],
+                    array_filter($dominios, fn ($d) => in_array($d['id'], $ids, true))
+                ));
+              ?>
+                <?php if ($nomes === []): ?>
+                  <span class="text-amber-400/80" title="Este operador não enxerga domínio nenhum">nenhum</span>
+                <?php else: ?>
+                  <span class="text-slate-400"><?= htmlspecialchars(implode(', ', $nomes)) ?></span>
+                <?php endif; ?>
+              <?php endif; ?>
+            </td>
             <td class="px-5 py-3">
               <?php if ($u['is_active']): ?>
                 <span class="badge bg-emerald-500/10 text-emerald-300">Ativo</span>
@@ -90,8 +165,12 @@ require __DIR__ . '/includes/layout_top.php';
               <?php endif; ?>
             </td>
             <td class="px-5 py-3 text-slate-500 text-xs"><?= $u['last_login_at'] ? date('d/m/Y H:i', strtotime($u['last_login_at'])) : 'nunca' ?></td>
-            <td class="px-5 py-3 text-right">
-              <form method="post" onsubmit="return confirm('Confirma a alteração de status?');">
+            <td class="px-5 py-3 text-right space-x-2 whitespace-nowrap">
+              <?php if ($u['role'] !== 'admin'): ?>
+                <button @click="editarDominios(<?= (int) $u['id'] ?>, <?= htmlspecialchars(json_encode($u['username']), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode($dominiosPorUsuario[(int) $u['id']] ?? []), ENT_QUOTES) ?>)"
+                        class="text-xs text-indigo-300 hover:text-indigo-200">Domínios</button>
+              <?php endif; ?>
+              <form method="post" class="inline" onsubmit="return confirm('Confirma a alteração de status?');">
                 <input type="hidden" name="action" value="toggle">
                 <input type="hidden" name="id" value="<?= (int) $u['id'] ?>">
                 <button type="submit" class="text-xs <?= $u['is_active'] ? 'text-rose-300 hover:text-rose-200' : 'text-emerald-300 hover:text-emerald-200' ?>">
@@ -124,18 +203,84 @@ require __DIR__ . '/includes/layout_top.php';
         </div>
         <div>
           <label class="block text-xs text-slate-400 mb-1">Papel</label>
-          <select name="role" class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+          <select name="role" x-model="papelNovo" class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
             <option value="operator">Operador (só gerencia LDAP)</option>
             <option value="admin">Administrador (gerencia operadores)</option>
           </select>
         </div>
+
+        <!-- Só faz sentido escolher domínios para operador: admin vê todos -->
+        <div x-show="papelNovo === 'operator'" x-cloak>
+          <label class="block text-xs text-slate-400 mb-1">Domínios que este operador poderá gerenciar</label>
+          <?php if ($dominios === []): ?>
+            <p class="text-xs text-amber-400/80">
+              Nenhum domínio cadastrado ainda. Cadastre em "Domínios" e depois volte aqui para liberar o acesso.
+            </p>
+          <?php else: ?>
+            <div class="space-y-1.5 rounded-lg bg-white/5 border border-white/10 px-3 py-2 max-h-40 overflow-y-auto">
+              <?php foreach ($dominios as $d): ?>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="dominios[]" value="<?= (int) $d['id'] ?>"
+                         class="rounded border-white/20 bg-white/5">
+                  <span><?= htmlspecialchars($d['name']) ?></span>
+                  <span class="text-xs text-slate-500"><?= htmlspecialchars((string) $d['domain_upn']) ?></span>
+                  <?php if (!$d['is_active']): ?><span class="text-xs text-slate-600">(inativo)</span><?php endif; ?>
+                </label>
+              <?php endforeach; ?>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-1">
+              Sem nenhum marcado, o operador entra mas não enxerga domínio algum.
+            </p>
+          <?php endif; ?>
+        </div>
+
         <div>
           <label class="block text-xs text-slate-400 mb-1">Senha inicial</label>
           <input type="text" name="password" required class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+          <p class="text-[11px] text-slate-500 mt-1">Será exigida a troca no primeiro acesso.</p>
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button type="button" @click="showCreate = false" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
           <button type="submit" class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-400 text-slate-950 text-sm font-semibold">Criar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: domínios de um operador -->
+  <div x-show="dominiosAlvo !== null" x-cloak class="fixed inset-0 z-30 flex items-center justify-center modal-overlay p-4">
+    <div class="modal-panel w-full max-w-md p-6" @click.outside="dominiosAlvo = null">
+      <h2 class="text-base font-semibold mb-1">Domínios do operador</h2>
+      <p class="text-xs text-slate-500 mb-4" x-text="dominiosAlvo?.nome"></p>
+
+      <form method="post" class="space-y-3">
+        <input type="hidden" name="action" value="dominios">
+        <input type="hidden" name="id" :value="dominiosAlvo?.id">
+
+        <?php if ($dominios === []): ?>
+          <p class="text-xs text-amber-400/80">Nenhum domínio cadastrado ainda.</p>
+        <?php else: ?>
+          <div class="space-y-1.5 rounded-lg bg-white/5 border border-white/10 px-3 py-2 max-h-56 overflow-y-auto">
+            <?php foreach ($dominios as $d): ?>
+              <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="dominios[]" value="<?= (int) $d['id'] ?>"
+                       x-model.number="dominiosMarcados"
+                       class="rounded border-white/20 bg-white/5">
+                <span><?= htmlspecialchars($d['name']) ?></span>
+                <span class="text-xs text-slate-500"><?= htmlspecialchars((string) $d['domain_upn']) ?></span>
+                <?php if (!$d['is_active']): ?><span class="text-xs text-slate-600">(inativo)</span><?php endif; ?>
+              </label>
+            <?php endforeach; ?>
+          </div>
+          <p class="text-[11px] text-slate-500">
+            Tirar um domínio vale na hora: se o operador estiver usando esse domínio, a próxima
+            página que ele abrir já não o alcança.
+          </p>
+        <?php endif; ?>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" @click="dominiosAlvo = null" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-400 text-slate-950 text-sm font-semibold">Salvar</button>
         </div>
       </form>
     </div>

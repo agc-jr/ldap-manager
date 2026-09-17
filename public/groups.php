@@ -64,7 +64,7 @@ require __DIR__ . '/includes/layout_top.php';
 
   <?php if ($ldapError): ?>
     <div class="card p-6 border-rose-500/30 bg-rose-500/5">
-      <p class="text-sm text-rose-300 font-medium">Erro ao consultar o LDAP</p>
+      <p class="text-sm text-rose-300 font-medium"><?= ActiveDomain::temAlgum() ? 'Erro ao consultar o LDAP' : 'Nenhum domínio disponível' ?></p>
       <p class="text-xs text-rose-400/80 mt-1"><?= htmlspecialchars($ldapError) ?></p>
     </div>
   <?php else: ?>

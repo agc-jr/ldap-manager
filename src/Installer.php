@@ -214,7 +214,11 @@ final class Installer
         if (str_contains($msg, 'Unknown database')) {
             return 'O banco informado não existe e não pôde ser criado.';
         }
-        if (str_contains($msg, 'Connection refused') || str_contains($msg, "Can't connect")) {
+        // O código 2002 cobre "servidor não respondeu" em qualquer idioma — a
+        // mensagem do sistema vem traduzida e não dá para casar pelo texto.
+        if (str_contains($msg, '[2002]')
+            || str_contains($msg, 'Connection refused')
+            || str_contains($msg, "Can't connect")) {
             return 'Não foi possível conectar ao servidor de banco no endereço e porta informados. '
                 . 'Verifique se o serviço está no ar e se aceita conexões desta máquina.';
         }

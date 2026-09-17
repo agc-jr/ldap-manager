@@ -111,6 +111,20 @@ final class ActiveDomain
     }
 
     /**
+     * Há algum domínio que este usuário possa operar? Usado pelas telas para
+     * distinguir "não tenho acesso" de "a conexão falhou" — são problemas
+     * diferentes e levam a ações diferentes.
+     */
+    public static function temAlgum(): bool
+    {
+        try {
+            return self::atual() !== null;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
      * Abre a conexão com o domínio ativo.
      */
     public static function conectar(): LdapConnection
