@@ -1,0 +1,25 @@
+# Exemplo de VirtualHost isolado, acessível apenas pela rede interna.
+# Ajuste ServerName, DocumentRoot e a faixa de IP conforme seu ambiente.
+
+<VirtualHost *:80>
+    ServerName ad-manager.interno.local
+    DocumentRoot /var/www/ldap-manager/public
+
+    <Directory /var/www/ldap-manager/public>
+        Options -Indexes +FollowSymLinks
+        AllowOverride None
+        Require all granted
+
+        # Restringe o acesso apenas à rede interna (ajuste a faixa de IP)
+        Require ip 10.0.0.0/8
+        Require ip 127.0.0.1
+    </Directory>
+
+    # Nada fora de /public deve ser acessível via HTTP
+    <DirectoryMatch "^/var/www/ldap-manager/(?!public)">
+        Require all denied
+    </DirectoryMatch>
+
+    ErrorLog ${APACHE_LOG_DIR}/ldap-manager-error.log
+    CustomLog ${APACHE_LOG_DIR}/ldap-manager-access.log combined
+</VirtualHost>
