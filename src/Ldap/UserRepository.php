@@ -90,26 +90,80 @@ final class UserRepository
             $entry['mail'] = $email;
         }
 
+        // Validar antes de tocar no diretório: se a senha for recusada depois do
+        // add, a conta já existe e fica desativada (ela nasce desabilitada de
+        // propósito, e só é habilitada após a senha entrar).
+        $problemas = PasswordPolicy::validar($initialPassword, $samAccountName, $cn);
+        if ($problemas !== []) {
+            throw new RuntimeException(PasswordPolicy::mensagemDeErro($problemas));
+        }
+
         $this->ldap->add($dn, $entry);
 
-        $this->setPassword($dn, $initialPassword, forceChangeOnLogin: true);
+        // A partir daqui a conta existe. Qualquer falha desfaz a criação, senão
+        // sobra no diretório uma conta desativada e sem senha utilizável.
+        try {
+            $this->setPassword($dn, $initialPassword, forceChangeOnLogin: true);
 
-        // Habilita a conta agora que a senha foi definida
-        $this->ldap->modify($dn, [
-            'userAccountControl' => (string) UserAccountControl::NORMAL_ACCOUNT,
-        ]);
+            // Habilita a conta agora que a senha foi definida
+            $this->ldap->modify($dn, [
+                'userAccountControl' => (string) UserAccountControl::NORMAL_ACCOUNT,
+            ]);
+        } catch (RuntimeException $e) {
+            try {
+                $this->ldap->delete($dn);
+            } catch (RuntimeException $falhaAoDesfazer) {
+                throw new RuntimeException(
+                    $e->getMessage() . ' A conta "' . $samAccountName . '" chegou a ser criada e não pôde ser'
+                    . ' removida automaticamente; ela está desativada no diretório e precisa ser tratada à mão.',
+                    0,
+                    $e
+                );
+            }
+
+            throw $e;
+        }
 
         return $dn;
     }
 
     /**
      * Define/reseta a senha. Requer LDAPS (a conexão já deve ter sido aberta em 636).
+     *
+     * @param string $login        usado só para validar a senha contra a política
+     * @param string $nomeCompleto idem
      */
-    public function setPassword(string $dn, string $newPassword, bool $forceChangeOnLogin = true): void
-    {
-        $this->ldap->modify($dn, [
-            'unicodePwd' => LdapConnection::encodePassword($newPassword),
-        ]);
+    public function setPassword(
+        string $dn,
+        string $newPassword,
+        bool $forceChangeOnLogin = true,
+        string $login = '',
+        string $nomeCompleto = ''
+    ): void {
+        $problemas = PasswordPolicy::validar($newPassword, $login, $nomeCompleto);
+        if ($problemas !== []) {
+            throw new RuntimeException(PasswordPolicy::mensagemDeErro($problemas));
+        }
+
+        try {
+            $this->ldap->modify($dn, [
+                'unicodePwd' => LdapConnection::encodePassword($newPassword),
+            ]);
+        } catch (RuntimeException $e) {
+            // O AD responde só "Constraint violation" quando recusa a senha, sem
+            // dizer o motivo. Se chegou aqui, a validação local passou e a regra
+            // violada é do domínio — normalmente o histórico de senhas.
+            if (stripos($e->getMessage(), 'Constraint violation') !== false) {
+                throw new RuntimeException(
+                    'O domínio recusou a senha. Ela atende às regras básicas, então o motivo mais provável é '
+                    . 'o histórico: o Active Directory guarda as últimas senhas da conta e não aceita repetir '
+                    . 'nenhuma delas. Tente uma senha que essa conta nunca tenha usado.',
+                    0,
+                    $e
+                );
+            }
+            throw $e;
+        }
 
         $this->ldap->modify($dn, [
             'pwdLastSet' => $forceChangeOnLogin ? '0' : '-1',

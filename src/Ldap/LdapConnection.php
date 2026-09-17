@@ -194,6 +194,13 @@ final class LdapConnection
         }
     }
 
+    public function delete(string $dn): void
+    {
+        if (!@ldap_delete($this->conn, $dn)) {
+            throw new RuntimeException('Falha ao remover objeto LDAP: ' . ldap_error($this->conn));
+        }
+    }
+
     /**
      * Codifica a senha no formato exigido pelo atributo unicodePwd do AD.
      */

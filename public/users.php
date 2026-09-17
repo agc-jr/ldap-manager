@@ -18,48 +18,69 @@ try {
     $ldap = new LdapConnection();
     $repo = new UserRepository($ldap);
 
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create') {
-        $sam       = trim($_POST['sam'] ?? '');
-        $given     = trim($_POST['given_name'] ?? '');
-        $sn        = trim($_POST['sn'] ?? '');
-        $email     = trim($_POST['email'] ?? '');
-        $password  = (string) ($_POST['password'] ?? '');
+    // Cada ação cuida do próprio erro e volta para a lista com a mensagem. Sem
+    // isso, uma senha recusada ao criar usuário aparecia como "Erro ao consultar
+    // o LDAP" — que descreve o problema errado e esconde a causa real.
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $acao = $_POST['action'] ?? '';
 
-        if ($sam === '' || $given === '' || $sn === '' || $password === '') {
-            flash('error', 'Preencha usuário, nome, sobrenome e senha inicial.');
-        } else {
-            $dn = $repo->create($sam, $given, $sn, $password, $email ?: null);
-            AuditLogger::log((int) $appUser['id'], $appUser['username'], 'user.create', 'ldap_user', $sam, [
-                'dn' => $dn, 'email' => $email,
-            ]);
-            flash('success', "Usuário \"{$sam}\" criado. Ele deverá trocar a senha no primeiro login.");
-        }
-        header('Location: users.php');
-        exit;
-    }
+        try {
+            if ($acao === 'create') {
+                $sam       = trim($_POST['sam'] ?? '');
+                $given     = trim($_POST['given_name'] ?? '');
+                $sn        = trim($_POST['sn'] ?? '');
+                $email     = trim($_POST['email'] ?? '');
+                $password  = (string) ($_POST['password'] ?? '');
 
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle') {
-        $sam = trim($_POST['sam'] ?? '');
-        $target = $repo->findBySamAccountName($sam);
-        if ($target) {
-            $newState = !$target['is_disabled'];
-            $repo->setDisabled($target['dn'], $newState, (int) $target['userAccountControl']);
-            AuditLogger::log((int) $appUser['id'], $appUser['username'], $newState ? 'user.disable' : 'user.enable', 'ldap_user', $sam);
-            flash('success', $newState ? "Usuário \"{$sam}\" desativado." : "Usuário \"{$sam}\" reativado.");
-        }
-        header('Location: users.php');
-        exit;
-    }
+                if ($sam === '' || $given === '' || $sn === '' || $password === '') {
+                    flash('error', 'Preencha usuário, nome, sobrenome e senha inicial.');
+                } else {
+                    $dn = $repo->create($sam, $given, $sn, $password, $email ?: null);
+                    AuditLogger::log((int) $appUser['id'], $appUser['username'], 'user.create', 'ldap_user', $sam, [
+                        'dn' => $dn, 'email' => $email,
+                    ]);
+                    flash('success', "Usuário \"{$sam}\" criado. Ele deverá trocar a senha no primeiro login.");
+                }
+            }
 
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset_password') {
-        $sam = trim($_POST['sam'] ?? '');
-        $newPassword = (string) ($_POST['new_password'] ?? '');
-        $target = $repo->findBySamAccountName($sam);
-        if ($target && $newPassword !== '') {
-            $repo->setPassword($target['dn'], $newPassword, true);
-            AuditLogger::log((int) $appUser['id'], $appUser['username'], 'user.reset_password', 'ldap_user', $sam);
-            flash('success', "Senha de \"{$sam}\" redefinida. Troca será exigida no próximo login.");
+            if ($acao === 'toggle') {
+                $sam = trim($_POST['sam'] ?? '');
+                $target = $repo->findBySamAccountName($sam);
+                if ($target) {
+                    $newState = !$target['is_disabled'];
+                    $repo->setDisabled($target['dn'], $newState, (int) $target['userAccountControl']);
+                    AuditLogger::log((int) $appUser['id'], $appUser['username'], $newState ? 'user.disable' : 'user.enable', 'ldap_user', $sam);
+                    flash('success', $newState ? "Usuário \"{$sam}\" desativado." : "Usuário \"{$sam}\" reativado.");
+                } else {
+                    flash('error', "Usuário \"{$sam}\" não foi encontrado no diretório.");
+                }
+            }
+
+            if ($acao === 'reset_password') {
+                $sam = trim($_POST['sam'] ?? '');
+                $newPassword = (string) ($_POST['new_password'] ?? '');
+                $target = $repo->findBySamAccountName($sam);
+
+                if (!$target) {
+                    flash('error', "Usuário \"{$sam}\" não foi encontrado no diretório.");
+                } elseif ($newPassword === '') {
+                    flash('error', 'Informe a nova senha.');
+                } else {
+                    $repo->setPassword(
+                        $target['dn'],
+                        $newPassword,
+                        true,
+                        (string) ($target['sAMAccountName'] ?? ''),
+                        (string) ($target['displayName'] ?? '')
+                    );
+                    AuditLogger::log((int) $appUser['id'], $appUser['username'], 'user.reset_password', 'ldap_user', $sam);
+                    flash('success', "Senha de \"{$sam}\" redefinida. Troca será exigida no próximo login.");
+                }
+            }
+        } catch (\Throwable $e) {
+            flash('error', $e->getMessage());
         }
+
         header('Location: users.php');
         exit;
     }
@@ -248,6 +269,7 @@ require __DIR__ . '/includes/layout_top.php';
           <label class="block text-xs text-slate-400 mb-1">Senha inicial</label>
           <input type="text" name="password" required class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
           <p class="text-[11px] text-slate-500 mt-1">O usuário será obrigado a trocar essa senha no primeiro login.</p>
+          <p class="text-[11px] text-amber-400/70 mt-1"><?= htmlspecialchars(\App\Ldap\PasswordPolicy::descricao()) ?></p>
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button type="button" @click="showCreate = false" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
@@ -268,6 +290,7 @@ require __DIR__ . '/includes/layout_top.php';
         <div>
           <label class="block text-xs text-slate-400 mb-1">Nova senha</label>
           <input type="text" name="new_password" required class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+          <p class="text-[11px] text-amber-400/70 mt-1"><?= htmlspecialchars(\App\Ldap\PasswordPolicy::descricao()) ?></p>
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button type="button" @click="resetTarget = null" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
