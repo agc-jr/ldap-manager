@@ -14,7 +14,7 @@ use App\Database;
 final class AuditLogger
 {
     public static function log(
-        int $appUserId,
+        ?int $appUserId,
         string $appUsername,
         string $action,
         string $targetType,

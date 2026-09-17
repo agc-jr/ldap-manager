@@ -2,6 +2,7 @@
 require __DIR__ . '/../src/bootstrap.php';
 require __DIR__ . '/includes/flash.php';
 
+use App\Audit\AuditLogger;
 use App\Auth;
 
 if (Auth::check()) {
@@ -19,8 +20,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($user) {
         Auth::login($user);
-        header('Location: dashboard.php');
+
+        AuditLogger::log(
+            (int) $user['id'],
+            (string) $user['username'],
+            'auth.login',
+            'app_user',
+            (string) $user['username']
+        );
+
+        // Senha provisória: requireLogin() leva para a troca a partir daqui.
+        header('Location: ' . (!empty($_SESSION['must_change_password']) ? 'change_password.php' : 'dashboard.php'));
         exit;
+    }
+
+    // Tentativa frustrada também vai para a auditoria: é o que permite notar
+    // alguém tentando adivinhar a senha de um operador.
+    if ($username !== '') {
+        AuditLogger::log(null, $username, 'auth.login_failed', 'app_user', $username);
     }
 
     $error = 'Usuário ou senha inválidos.';
