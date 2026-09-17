@@ -1,0 +1,12 @@
+# Este e o unico diretorio que deve ser servido pela web.
+# Reverte a negacao herdada do .htaccess da raiz do projeto.
+
+<IfModule mod_authz_core.c>
+    Require all granted
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Allow from all
+</IfModule>
+
+DirectoryIndex login.php index.php
