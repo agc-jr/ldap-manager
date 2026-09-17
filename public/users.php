@@ -56,6 +56,42 @@ try {
                 }
             }
 
+            if ($acao === 'delete') {
+                $sam       = trim($_POST['sam'] ?? '');
+                $confirmou = trim($_POST['confirmacao'] ?? '');
+
+                if (!Auth::isAdmin()) {
+                    // A tela não mostra o botão para operador, mas a checagem
+                    // precisa existir aqui: esconder na interface não protege
+                    // contra um POST montado à mão.
+                    flash('error', 'Apenas administradores da ferramenta podem excluir contas do domínio.');
+                } elseif ($confirmou !== $sam) {
+                    flash('error', 'A confirmação não confere com o nome de usuário. Nada foi excluído.');
+                } else {
+                    $target = $repo->findBySamAccountName($sam);
+
+                    if (!$target) {
+                        flash('error', "Usuário \"{$sam}\" não foi encontrado no diretório.");
+                    } else {
+                        // Copiado antes de apagar, porque depois não há de onde
+                        // tirar; mas só vai para a auditoria se a exclusão der
+                        // certo, senão ficaria registrado algo que não ocorreu.
+                        $retrato = [
+                            'dn'          => $target['dn'] ?? null,
+                            'displayName' => $target['displayName'] ?? null,
+                            'mail'        => $target['mail'] ?? null,
+                            'grupos'      => $target['groups'] ?? [],
+                            'estava'      => ($target['is_disabled'] ?? false) ? 'desativada' : 'ativa',
+                        ];
+
+                        $repo->delete((string) $target['dn']);
+
+                        AuditLogger::log((int) $appUser['id'], $appUser['username'], 'user.delete', 'ldap_user', $sam, $retrato);
+                        flash('success', "Usuário \"{$sam}\" foi excluído do domínio. A exclusão é definitiva.");
+                    }
+                }
+            }
+
             if ($acao === 'reset_password') {
                 $sam = trim($_POST['sam'] ?? '');
                 $newPassword = (string) ($_POST['new_password'] ?? '');
@@ -196,6 +232,10 @@ require __DIR__ . '/includes/layout_top.php';
                         :class="u.desativado ? 'text-emerald-300 hover:text-emerald-200' : 'text-rose-300 hover:text-rose-200'"
                         x-text="u.desativado ? 'Reativar' : 'Desativar'"></button>
               </form>
+              <?php if (Auth::isAdmin()): ?>
+                <button @click="abrirExclusao(u)"
+                        class="text-xs text-slate-500 hover:text-rose-300">Excluir</button>
+              <?php endif; ?>
             </td>
           </tr>
         </template>
@@ -279,6 +319,56 @@ require __DIR__ . '/includes/layout_top.php';
     </div>
   </div>
 
+<?php if (Auth::isAdmin()): ?>
+  <!-- Modal: excluir usuário (irreversível, por isso exige digitar o login) -->
+  <div x-show="excluirAlvo !== null" x-cloak class="fixed inset-0 z-30 flex items-center justify-center modal-overlay p-4">
+    <div class="modal-panel w-full max-w-md p-6" @click.outside="fecharExclusao()">
+      <h2 class="text-base font-semibold mb-1 text-rose-300">Excluir usuário do domínio</h2>
+      <p class="text-xs text-slate-400 mb-4">
+        <span x-text="excluirAlvo?.nome || excluirAlvo?.sam" class="text-slate-200"></span>
+        <span class="text-slate-500" x-text="'(' + (excluirAlvo?.sam || '') + ')'"></span>
+      </p>
+
+      <div class="rounded-xl px-4 py-3 mb-4 text-xs bg-rose-500/10 text-rose-200 ring-1 ring-rose-500/30 space-y-1.5">
+        <p class="font-medium">Esta ação não tem volta.</p>
+        <p class="text-rose-200/80">
+          O identificador da conta (SID) é apagado junto. Criar depois um usuário com o mesmo
+          nome não devolve as permissões, os grupos nem o acesso aos arquivos dela.
+        </p>
+        <p class="text-rose-200/80">
+          Se a intenção é apenas tirar o acesso de alguém que saiu, <strong>Desativar</strong> faz
+          isso na hora e pode ser desfeito.
+        </p>
+      </div>
+
+      <template x-if="(excluirAlvo?.grupos || '') !== ''">
+        <p class="text-xs text-amber-300/90 mb-3">
+          Está nos grupos: <span x-text="excluirAlvo?.grupos"></span>
+        </p>
+      </template>
+
+      <form method="post" class="space-y-3">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="sam" :value="excluirAlvo?.sam">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">
+            Para confirmar, digite <span class="text-slate-200 font-mono" x-text="excluirAlvo?.sam"></span>
+          </label>
+          <input type="text" name="confirmacao" x-model="excluirConfirmacao" autocomplete="off"
+                 class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm font-mono">
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" @click="fecharExclusao()" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
+          <button type="submit" :disabled="excluirConfirmacao !== excluirAlvo?.sam"
+                  class="px-4 py-2 rounded-lg text-sm font-semibold bg-rose-500 text-white disabled:opacity-30 disabled:cursor-not-allowed">
+            Excluir definitivamente
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+<?php endif; ?>
+
   <!-- Modal: resetar senha -->
   <div x-show="resetTarget !== null" x-cloak class="fixed inset-0 z-30 flex items-center justify-center modal-overlay p-4">
     <div class="modal-panel w-full max-w-sm p-6" @click.outside="resetTarget = null">
@@ -314,6 +404,20 @@ function tabelaUsuarios(usuarios) {
     porPagina: 25,
     showCreate: false,
     resetTarget: null,
+    excluirAlvo: null,
+    excluirConfirmacao: '',
+
+    abrirExclusao(u) {
+      this.excluirAlvo = u;
+      // Zerado a cada abertura: o texto digitado para uma conta nunca pode
+      // valer como confirmação para outra.
+      this.excluirConfirmacao = '';
+    },
+
+    fecharExclusao() {
+      this.excluirAlvo = null;
+      this.excluirConfirmacao = '';
+    },
 
     get filtrados() {
       const termo = semAcento(this.q.trim().toLowerCase());

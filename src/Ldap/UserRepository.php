@@ -170,6 +170,31 @@ final class UserRepository
         ]);
     }
 
+    /**
+     * Remove o usuário do diretório. Irreversível: o Active Directory só
+     * guarda objetos excluídos se a lixeira estiver habilitada, o que não é o
+     * padrão no Samba. O SID se perde junto, então recriar a conta com o mesmo
+     * nome não recupera permissões, participação em grupos nem acesso a
+     * arquivos. Desativar costuma ser a operação certa.
+     */
+    public function delete(string $dn): void
+    {
+        $cfg = Config::get('ldap');
+        $ou = $cfg['default_user_ou'] ?? null;
+
+        // Fora da OU delegada o diretório recusaria com "Insufficient access",
+        // mensagem que não explica nada a quem está na tela. Contas
+        // administrativas e de sistema ficam propositalmente fora do alcance.
+        if (is_string($ou) && $ou !== '' && !str_ends_with(mb_strtolower($dn), mb_strtolower($ou))) {
+            throw new RuntimeException(
+                'Esta conta está fora da unidade organizacional gerenciada por esta ferramenta e não pode '
+                . 'ser removida por aqui. Contas administrativas e de sistema ficam de fora de propósito.'
+            );
+        }
+
+        $this->ldap->delete($dn);
+    }
+
     public function setDisabled(string $dn, bool $disabled, int $currentUac): void
     {
         // Nunca escrever um userAccountControl que nao veio do diretorio: gravar 0
