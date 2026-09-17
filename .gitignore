@@ -4,3 +4,6 @@
 /logs/*.log
 .DS_Store
 *.swp
+
+# Workspace local do VSCode
+/*.code-workspace

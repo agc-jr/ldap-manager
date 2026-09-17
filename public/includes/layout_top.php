@@ -55,7 +55,7 @@ $user = Auth::user();
     <?php if ($user['id']): ?>
     <header class="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-slate-950/60 backdrop-blur sticky top-0 z-10">
       <h1 class="text-lg font-semibold tracking-tight"><?= htmlspecialchars($pageTitle ?? '') ?></h1>
-      <div class="text-xs text-slate-500">exemplo.local</div>
+      <div class="text-xs text-slate-500"><?= htmlspecialchars(\App\Config::get('ldap.domain_upn', '')) ?></div>
     </header>
     <?php endif; ?>
     <div class="p-6 max-w-7xl mx-auto">

@@ -48,7 +48,7 @@ require __DIR__ . '/includes/layout_top.php';
 
 <?php if ($ldapError): ?>
   <div class="card p-6 mb-6 border-rose-500/30 bg-rose-500/5">
-    <p class="text-sm text-rose-300 font-medium">Não foi possível conectar ao domínio exemplo.local</p>
+    <p class="text-sm text-rose-300 font-medium">Não foi possível conectar ao domínio <?= htmlspecialchars(\App\Config::get('ldap.domain_upn', '')) ?></p>
     <p class="text-xs text-rose-400/80 mt-1"><?= htmlspecialchars($ldapError) ?></p>
   </div>
 <?php endif; ?>
