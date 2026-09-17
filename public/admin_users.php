@@ -105,8 +105,8 @@ require __DIR__ . '/includes/layout_top.php';
     </table>
   </div>
 
-  <div x-show="showCreate" x-cloak class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4">
-    <div class="card w-full max-w-md p-6" @click.outside="showCreate = false">
+  <div x-show="showCreate" x-cloak class="fixed inset-0 z-30 flex items-center justify-center modal-overlay p-4">
+    <div class="modal-panel w-full max-w-md p-6" @click.outside="showCreate = false">
       <h2 class="text-base font-semibold mb-4">Novo operador</h2>
       <form method="post" class="space-y-3">
         <input type="hidden" name="action" value="create">

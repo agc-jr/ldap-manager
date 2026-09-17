@@ -107,8 +107,8 @@ require __DIR__ . '/includes/layout_top.php';
   </div>
 
   <!-- Modal: adicionar membro -->
-  <div x-show="addTo !== null" x-cloak class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4">
-    <div class="card w-full max-w-sm p-6" @click.outside="addTo = null">
+  <div x-show="addTo !== null" x-cloak class="fixed inset-0 z-30 flex items-center justify-center modal-overlay p-4">
+    <div class="modal-panel w-full max-w-sm p-6" @click.outside="addTo = null">
       <h2 class="text-base font-semibold mb-1">Adicionar membro</h2>
       <p class="text-xs text-slate-500 mb-4">Grupo: <span x-text="addTo" class="text-slate-300"></span></p>
       <form method="post" class="space-y-3">

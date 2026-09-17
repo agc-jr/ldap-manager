@@ -36,3 +36,39 @@ table.data tbody tr:hover {
   font-size: .7rem;
   font-weight: 600;
 }
+
+/* ---------------------------------------------------------------------
+   Painéis sobrepostos (modais)
+
+   O .card acima é translúcido de propósito: ele fica sobre o fundo sólido
+   da página e o efeito de vidro funciona. Num modal isso não vale — ali o
+   card fica sobre o overlay, com a tabela atrás, e 4% de branco sobre 60%
+   de preto não é opaco: o conteúdo da página vazava através do formulário
+   e deixava a tela ilegível. Por isso o painel do modal tem fundo próprio.
+   --------------------------------------------------------------------- */
+
+.modal-overlay {
+  background: rgba(2, 6, 23, .80);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.modal-panel {
+  background: #101a30;              /* opaco, um tom acima do fundo da página */
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 1rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, .85);
+}
+
+/* Dentro do painel opaco os campos precisam de mais contorno que no resto
+   da interface, senão somem no fundo escuro. */
+.modal-panel input,
+.modal-panel select {
+  background: rgba(255, 255, 255, .07);
+  border-color: rgba(255, 255, 255, .14);
+}
+
+.modal-panel input:focus,
+.modal-panel select:focus {
+  background: rgba(255, 255, 255, .10);
+}
