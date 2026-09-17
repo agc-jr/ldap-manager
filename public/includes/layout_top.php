@@ -31,7 +31,7 @@ $user = Auth::user();
           'users.php'     => ['Usuários', 'users'],
           'groups.php'    => ['Grupos', 'shield'],
         ];
-        if (Auth::isAdmin()) { $nav['admin_users.php'] = ['Operadores', 'lock']; }
+        if (Auth::isAdmin()) { $nav['admin_users.php'] = ['Operadores', 'lock']; $nav['domains.php'] = ['Domínios', 'server']; }
         $current = basename($_SERVER['SCRIPT_NAME']);
       ?>
       <?php foreach ($nav as $href => [$label, $icon]): $active = $current === $href; ?>
@@ -55,7 +55,39 @@ $user = Auth::user();
     <?php if ($user['id']): ?>
     <header class="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-slate-950/60 backdrop-blur sticky top-0 z-10">
       <h1 class="text-lg font-semibold tracking-tight"><?= htmlspecialchars($pageTitle ?? '') ?></h1>
-      <div class="text-xs text-slate-500"><?= htmlspecialchars(\App\Config::get('ldap.domain_upn', '')) ?></div>
+      <?php
+        // Seletor de domínio. Com um só cadastrado, vira apenas um rótulo — não
+        // faz sentido oferecer uma escolha que não existe.
+        $dominiosDisponiveis = [];
+        $dominioAtivo = null;
+        try {
+            $dominiosDisponiveis = \App\Ldap\ActiveDomain::disponiveis();
+            $dominioAtivo = \App\Ldap\ActiveDomain::atual();
+        } catch (\Throwable $e) {
+            // Banco indisponível ou instalação incompleta: o cabeçalho não é
+            // lugar de mostrar esse erro, a própria página já o mostrará.
+        }
+      ?>
+      <?php if (count($dominiosDisponiveis) > 1): ?>
+        <form method="post" action="switch_domain.php" class="flex items-center gap-2">
+          <span class="text-xs text-slate-500 hidden sm:inline">Domínio:</span>
+          <select name="ldap_domain_id" onchange="this.form.submit()"
+                  class="rounded-lg bg-white/5 border border-white/10 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400/50">
+            <?php foreach ($dominiosDisponiveis as $d): ?>
+              <option value="<?= (int) $d['id'] ?>" <?= ($dominioAtivo && $d['id'] === $dominioAtivo['id']) ? 'selected' : '' ?>>
+                <?= htmlspecialchars($d['name']) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </form>
+      <?php elseif ($dominioAtivo !== null): ?>
+        <div class="text-xs text-slate-500" title="<?= htmlspecialchars($dominioAtivo['host']) ?>">
+          <?= htmlspecialchars($dominioAtivo['name']) ?>
+          <span class="text-slate-600">· <?= htmlspecialchars((string) $dominioAtivo['domain_upn']) ?></span>
+        </div>
+      <?php else: ?>
+        <div class="text-xs text-amber-400/80">Nenhum domínio disponível</div>
+      <?php endif; ?>
     </header>
     <?php endif; ?>
     <div class="p-6 max-w-7xl mx-auto">

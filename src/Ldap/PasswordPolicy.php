@@ -30,10 +30,14 @@ final class PasswordPolicy
     /**
      * @return array<int, string> Lista de problemas; vazia se a senha serve.
      */
-    public static function validar(string $senha, string $login = '', string $nomeCompleto = ''): array
-    {
+    public static function validar(
+        string $senha,
+        string $login = '',
+        string $nomeCompleto = '',
+        ?int $minimoDoDominio = null
+    ): array {
         $problemas = [];
-        $minimo = self::comprimentoMinimo();
+        $minimo = $minimoDoDominio ?? self::comprimentoMinimo();
 
         if (mb_strlen($senha) < $minimo) {
             $problemas[] = "precisa ter pelo menos {$minimo} caracteres";
@@ -76,9 +80,9 @@ final class PasswordPolicy
     /**
      * Texto curto para orientar quem está preenchendo o formulário.
      */
-    public static function descricao(): string
+    public static function descricao(?int $minimoDoDominio = null): string
     {
-        return 'Mínimo de ' . self::comprimentoMinimo() . ' caracteres, combinando pelo menos '
+        return 'Mínimo de ' . ($minimoDoDominio ?? self::comprimentoMinimo()) . ' caracteres, combinando pelo menos '
             . self::CATEGORIAS_EXIGIDAS . ' tipos entre maiúscula, minúscula, número e símbolo. '
             . 'Não pode conter o nome do usuário.';
     }

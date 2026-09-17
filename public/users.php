@@ -4,7 +4,7 @@ require __DIR__ . '/includes/flash.php';
 
 use App\Auth;
 use App\Audit\AuditLogger;
-use App\Ldap\LdapConnection;
+use App\Ldap\ActiveDomain;
 use App\Ldap\UserRepository;
 
 Auth::requireLogin();
@@ -15,7 +15,7 @@ $ldapError = null;
 $users = [];
 
 try {
-    $ldap = new LdapConnection();
+    $ldap = ActiveDomain::conectar();
     $repo = new UserRepository($ldap);
 
     // Cada ação cuida do próprio erro e volta para a lista com a mensagem. Sem

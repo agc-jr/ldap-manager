@@ -23,19 +23,29 @@ final class AuditLogger
     ): void {
         $pdo = Database::connection();
 
+        // O domínio vem da sessão, e não como parâmetro: assim nenhuma chamada
+        // existente precisa mudar, e nenhuma corre o risco de esquecer de
+        // informá-lo. Com vários domínios cadastrados, um registro sem essa
+        // informação seria ambíguo.
+        [$domainId, $domainNome] = \App\Ldap\ActiveDomain::paraAuditoria();
+
         $stmt = $pdo->prepare(
-            'INSERT INTO audit_log (app_user_id, app_username, action, target_type, target_id, details, ip_address)
-             VALUES (:app_user_id, :app_username, :action, :target_type, :target_id, :details, :ip_address)'
+            'INSERT INTO audit_log
+                (app_user_id, app_username, action, target_type, target_id, ldap_domain_id, ldap_domain, details, ip_address)
+             VALUES
+                (:app_user_id, :app_username, :action, :target_type, :target_id, :ldap_domain_id, :ldap_domain, :details, :ip_address)'
         );
 
         $stmt->execute([
-            'app_user_id'  => $appUserId,
-            'app_username' => $appUsername,
-            'action'       => $action,
-            'target_type'  => $targetType,
-            'target_id'    => $targetId,
-            'details'      => json_encode($details, JSON_UNESCAPED_UNICODE),
-            'ip_address'   => $_SERVER['REMOTE_ADDR'] ?? null,
+            'app_user_id'    => $appUserId,
+            'app_username'   => $appUsername,
+            'action'         => $action,
+            'target_type'    => $targetType,
+            'target_id'      => $targetId,
+            'ldap_domain_id' => $domainId,
+            'ldap_domain'    => $domainNome,
+            'details'        => json_encode($details, JSON_UNESCAPED_UNICODE),
+            'ip_address'     => $_SERVER['REMOTE_ADDR'] ?? null,
         ]);
     }
 

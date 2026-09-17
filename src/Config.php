@@ -12,6 +12,24 @@ final class Config
 {
     private static ?array $data = null;
 
+    /**
+     * Existe configuração gravada? O instalador precisa saber disso sem
+     * provocar a exceção de load().
+     */
+    public static function existe(): bool
+    {
+        return is_file(dirname(__DIR__) . '/config/config.php');
+    }
+
+    /**
+     * Descarta o que já foi lido. Necessário logo após o instalador gravar o
+     * config.php, para que a mesma requisição passe a enxergá-lo.
+     */
+    public static function recarregar(): void
+    {
+        self::$data = null;
+    }
+
     public static function load(): array
     {
         if (self::$data !== null) {

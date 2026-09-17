@@ -14,6 +14,16 @@ final class Database
 {
     private static ?PDO $instance = null;
 
+    /**
+     * Esquece a conexão atual. Usado pelo instalador, que conecta antes e
+     * depois de gravar o config.php — a conexão da primeira etapa não vale
+     * para a segunda.
+     */
+    public static function reconectar(): void
+    {
+        self::$instance = null;
+    }
+
     public static function connection(): PDO
     {
         if (self::$instance !== null) {

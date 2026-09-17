@@ -4,7 +4,7 @@ require __DIR__ . '/includes/flash.php';
 
 use App\Auth;
 use App\Audit\AuditLogger;
-use App\Ldap\LdapConnection;
+use App\Ldap\ActiveDomain;
 use App\Ldap\UserRepository;
 use App\Ldap\GroupRepository;
 
@@ -17,7 +17,7 @@ $groups = [];
 $allUsers = [];
 
 try {
-    $ldap = new LdapConnection();
+    $ldap = ActiveDomain::conectar();
     $groupRepo = new GroupRepository($ldap);
     $userRepo = new UserRepository($ldap);
 

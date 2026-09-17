@@ -3,7 +3,7 @@ require __DIR__ . '/../src/bootstrap.php';
 
 use App\Auth;
 use App\Audit\AuditLogger;
-use App\Ldap\LdapConnection;
+use App\Ldap\ActiveDomain;
 use App\Ldap\UserRepository;
 use App\Ldap\GroupRepository;
 
@@ -20,7 +20,7 @@ $recentAudit = [];
 $ldapError = null;
 
 try {
-    $ldap = new LdapConnection();
+    $ldap = ActiveDomain::conectar();
     $users = (new UserRepository($ldap))->all();
     $groups = (new GroupRepository($ldap))->all();
 

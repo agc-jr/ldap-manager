@@ -30,9 +30,26 @@ final class LdapConnection
     private mixed $conn;
     private string $baseDn;
 
-    public function __construct()
+    /** @var array<string, mixed> Domínio ao qual esta conexão pertence */
+    private array $dominio;
+
+    /**
+     * @param array<string, mixed>|null $dominio Cadastro vindo de DomainRepository.
+     *        Quando null, cai no bloco 'ldap' de config/config.php — o formato
+     *        antigo, de quando a ferramenta atendia um único domínio. Mantido
+     *        para instalações que ainda não migraram.
+     */
+    public function __construct(?array $dominio = null)
     {
-        $cfg = Config::get('ldap');
+        $cfg = $dominio ?? Config::get('ldap');
+
+        if (!is_array($cfg) || ($cfg['host'] ?? '') === '') {
+            throw new RuntimeException(
+                'Nenhum domínio LDAP configurado. Cadastre um domínio na tela de administração.'
+            );
+        }
+
+        $this->dominio = $cfg;
 
         if (!extension_loaded('ldap')) {
             throw new RuntimeException('A extensão php-ldap não está instalada/habilitada.');
@@ -70,6 +87,27 @@ final class LdapConnection
 
         $this->conn = $conn;
         $this->baseDn = $cfg['base_dn'];
+    }
+
+    /**
+     * Cadastro do domínio desta conexão — usado por quem precisa de OU padrão,
+     * UPN ou política de senha sem voltar ao banco.
+     *
+     * @return array<string, mixed>
+     */
+    public function dominio(): array
+    {
+        return $this->dominio;
+    }
+
+    /**
+     * @return mixed valor do cadastro do domínio, ou $padrao se ausente/vazio
+     */
+    public function opcao(string $chave, mixed $padrao = null): mixed
+    {
+        $valor = $this->dominio[$chave] ?? null;
+
+        return ($valor === null || $valor === '') ? $padrao : $valor;
     }
 
     public function raw(): mixed

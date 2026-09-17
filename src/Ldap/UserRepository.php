@@ -69,8 +69,10 @@ final class UserRepository
      */
     public function create(string $samAccountName, string $givenName, string $sn, string $initialPassword, ?string $email = null): string
     {
-        $cfg = Config::get('ldap');
-        $ou = $cfg['default_user_ou'] ?? ('CN=Users,' . $cfg['base_dn']);
+        // Vem do cadastro do domínio, não mais de config/config.php: a mesma
+        // instalação pode atender vários domínios, cada um com sua OU e UPN.
+        $ou = $this->ldap->opcao('default_user_ou', 'CN=Users,' . $this->ldap->baseDn());
+        $upn = $this->ldap->opcao('domain_upn', '');
         $cn = trim($givenName . ' ' . $sn);
         $dn = "CN={$cn},{$ou}";
 
@@ -78,7 +80,7 @@ final class UserRepository
             'objectClass'       => ['top', 'person', 'organizationalPerson', 'user'],
             'cn'                => $cn,
             'sAMAccountName'    => $samAccountName,
-            'userPrincipalName' => $samAccountName . '@' . $cfg['domain_upn'],
+            'userPrincipalName' => $samAccountName . '@' . $upn,
             'givenName'         => $givenName,
             'sn'                => $sn,
             'displayName'       => $cn,
@@ -93,7 +95,7 @@ final class UserRepository
         // Validar antes de tocar no diretório: se a senha for recusada depois do
         // add, a conta já existe e fica desativada (ela nasce desabilitada de
         // propósito, e só é habilitada após a senha entrar).
-        $problemas = PasswordPolicy::validar($initialPassword, $samAccountName, $cn);
+        $problemas = PasswordPolicy::validar($initialPassword, $samAccountName, $cn, (int) $this->ldap->opcao('password_min_length', PasswordPolicy::MIN_LENGTH_PADRAO));
         if ($problemas !== []) {
             throw new RuntimeException(PasswordPolicy::mensagemDeErro($problemas));
         }
@@ -140,7 +142,7 @@ final class UserRepository
         string $login = '',
         string $nomeCompleto = ''
     ): void {
-        $problemas = PasswordPolicy::validar($newPassword, $login, $nomeCompleto);
+        $problemas = PasswordPolicy::validar($newPassword, $login, $nomeCompleto, (int) $this->ldap->opcao('password_min_length', PasswordPolicy::MIN_LENGTH_PADRAO));
         if ($problemas !== []) {
             throw new RuntimeException(PasswordPolicy::mensagemDeErro($problemas));
         }
@@ -179,8 +181,7 @@ final class UserRepository
      */
     public function delete(string $dn): void
     {
-        $cfg = Config::get('ldap');
-        $ou = $cfg['default_user_ou'] ?? null;
+        $ou = $this->ldap->opcao('default_user_ou');
 
         // Fora da OU delegada o diretório recusaria com "Insufficient access",
         // mensagem que não explica nada a quem está na tela. Contas
