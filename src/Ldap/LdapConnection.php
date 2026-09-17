@@ -41,11 +41,17 @@ final class LdapConnection
         $uri = sprintf('%s:%d', rtrim($cfg['host'], '/'), $cfg['port']);
 
         if (($cfg['tls_verify'] ?? true) === false) {
-            // Necessário em ambientes com certificado autoassinado/expirado.
-            // Precisa vir ANTES do ldap_connect: a libldap lê esta variável ao
-            // montar o contexto TLS da conexão, não na hora do bind.
-            // O ideal a médio prazo é renovar o certificado do Samba e remover isto.
-            putenv('LDAPTLS_REQCERT=never');
+            // Certificado autoassinado/expirado (comum em Samba AD interno).
+            //
+            // putenv('LDAPTLS_REQCERT=never') sozinho NAO basta: no Windows a
+            // libldap nao le essa variavel de ambiente. Quem efetivamente desliga
+            // a validacao e a opcao global abaixo, e ela precisa ser aplicada
+            // ANTES do primeiro ldap_connect do processo, porque o contexto TLS
+            // global do OpenLDAP e construido uma unica vez e nao volta atras.
+            //
+            // O ideal a medio prazo e renovar o certificado do Samba e remover isto.
+            ldap_set_option(null, LDAP_OPT_X_TLS_REQUIRE_CERT, LDAP_OPT_X_TLS_NEVER);
+            putenv('LDAPTLS_REQCERT=never'); // ainda util para o ldap.conf no Linux
         }
 
         $conn = ldap_connect($uri);
