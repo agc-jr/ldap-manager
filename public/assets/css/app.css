@@ -1,0 +1,38 @@
+/* Ajustes finos por cima do Tailwind utilitário */
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, .25); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, .4); }
+
+.card {
+  background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 1rem;
+}
+
+table.data th {
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: rgb(148 163 184);
+  font-weight: 600;
+}
+
+table.data tbody tr {
+  border-top: 1px solid rgba(255,255,255,.05);
+}
+
+table.data tbody tr:hover {
+  background: rgba(255,255,255,.03);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .15rem .6rem;
+  border-radius: 999px;
+  font-size: .7rem;
+  font-weight: 600;
+}
