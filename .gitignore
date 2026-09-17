@@ -1,0 +1,6 @@
+/config/config.php
+/.env
+/vendor/
+/logs/*.log
+.DS_Store
+*.swp
