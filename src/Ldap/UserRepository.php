@@ -118,6 +118,15 @@ final class UserRepository
 
     public function setDisabled(string $dn, bool $disabled, int $currentUac): void
     {
+        // Nunca escrever um userAccountControl que nao veio do diretorio: gravar 0
+        // (ou qualquer valor sem a flag NORMAL_ACCOUNT) deixa a conta em um estado
+        // invalido no AD, dificil de reverter pela interface.
+        if ($currentUac <= 0) {
+            throw new RuntimeException(
+                "userAccountControl atual nao foi lido do diretorio; abortando para nao corromper a conta {$dn}."
+            );
+        }
+
         $this->ldap->modify($dn, [
             'userAccountControl' => (string) UserAccountControl::withDisabled($currentUac, $disabled),
         ]);

@@ -19,6 +19,13 @@ use RuntimeException;
  */
 final class LdapConnection
 {
+    /**
+     * O AD/Samba corta qualquer busca em MaxPageSize (1000 por padrão) e não
+     * avisa: a resposta simplesmente vem truncada. Por isso toda busca é
+     * paginada com o controle LDAP_CONTROL_PAGEDRESULTS.
+     */
+    private const PAGE_SIZE = 500;
+
     /** @var \LDAP\Connection|resource Objeto de conexão em PHP 8.1+, resource em versões antigas */
     private mixed $conn;
     private string $baseDn;
@@ -33,6 +40,14 @@ final class LdapConnection
 
         $uri = sprintf('%s:%d', rtrim($cfg['host'], '/'), $cfg['port']);
 
+        if (($cfg['tls_verify'] ?? true) === false) {
+            // Necessário em ambientes com certificado autoassinado/expirado.
+            // Precisa vir ANTES do ldap_connect: a libldap lê esta variável ao
+            // montar o contexto TLS da conexão, não na hora do bind.
+            // O ideal a médio prazo é renovar o certificado do Samba e remover isto.
+            putenv('LDAPTLS_REQCERT=never');
+        }
+
         $conn = ldap_connect($uri);
         if ($conn === false) {
             throw new RuntimeException("Não foi possível iniciar conexão LDAP com {$uri}");
@@ -40,12 +55,6 @@ final class LdapConnection
 
         ldap_set_option($conn, LDAP_OPT_PROTOCOL_VERSION, 3);
         ldap_set_option($conn, LDAP_OPT_REFERRALS, 0);
-
-        if (($cfg['tls_verify'] ?? true) === false) {
-            // Necessário em ambientes com certificado autoassinado/expirado.
-            // O ideal a médio prazo é renovar o certificado do Samba e remover isto.
-            putenv('LDAPTLS_REQCERT=never');
-        }
 
         $bound = @ldap_bind($conn, $cfg['bind_dn'], $cfg['bind_password']);
         if (!$bound) {
@@ -68,22 +77,72 @@ final class LdapConnection
     }
 
     /**
+     * Busca paginada. As chaves do retorno vêm no mesmo case em que o atributo
+     * foi pedido em $attributes (ver normalizeEntry).
+     *
+     * @param array<int, string> $attributes
      * @return array<int, array<string, mixed>>
      */
     public function search(string $filter, array $attributes = [], ?string $baseDn = null): array
     {
-        $result = @ldap_search($this->conn, $baseDn ?? $this->baseDn, $filter, $attributes);
-        if ($result === false) {
-            throw new RuntimeException('Busca LDAP falhou: ' . ldap_error($this->conn));
+        // ldap_get_entries() devolve todo nome de atributo em minúsculas.
+        // Este mapa restaura o case canônico que o chamador pediu, para que o
+        // resto do código possa usar $entry['sAMAccountName'] e não
+        // $entry['samaccountname'].
+        $canonical = [];
+        foreach ($attributes as $attr) {
+            $canonical[strtolower($attr)] = $attr;
         }
 
-        $entries = ldap_get_entries($this->conn, $result);
-        unset($entries['count']);
+        $base = $baseDn ?? $this->baseDn;
+        $cookie = '';
+        $all = [];
 
-        return array_map([self::class, 'normalizeEntry'], $entries);
+        do {
+            $controls = [[
+                'oid'   => LDAP_CONTROL_PAGEDRESULTS,
+                'value' => ['size' => self::PAGE_SIZE, 'cookie' => $cookie],
+            ]];
+
+            $result = @ldap_search(
+                $this->conn,
+                $base,
+                $filter,
+                $attributes,
+                0,
+                0,
+                0,
+                LDAP_DEREF_NEVER,
+                $controls
+            );
+
+            if ($result === false) {
+                throw new RuntimeException('Busca LDAP falhou: ' . ldap_error($this->conn));
+            }
+
+            $entries = ldap_get_entries($this->conn, $result);
+            unset($entries['count']);
+
+            foreach ($entries as $entry) {
+                if (is_array($entry)) {
+                    $all[] = self::normalizeEntry($entry, $canonical);
+                }
+            }
+
+            $cookie = '';
+            $respControls = [];
+            if (@ldap_parse_result($this->conn, $result, $errcode, $matchedDn, $errMsg, $referrals, $respControls)) {
+                $cookie = $respControls[LDAP_CONTROL_PAGEDRESULTS]['value']['cookie'] ?? '';
+            }
+        } while ($cookie !== '' && $cookie !== null);
+
+        return $all;
     }
 
-    private static function normalizeEntry(array $entry): array
+    /**
+     * @param array<string, string> $canonical mapa nome_minusculo => NomeCanonico
+     */
+    private static function normalizeEntry(array $entry, array $canonical = []): array
     {
         $clean = ['dn' => $entry['dn'] ?? null];
 
@@ -93,7 +152,8 @@ final class LdapConnection
             }
             if (is_array($value)) {
                 unset($value['count']);
-                $clean[$key] = count($value) === 1 ? $value[0] : $value;
+                $name = $canonical[strtolower((string) $key)] ?? $key;
+                $clean[$name] = count($value) === 1 ? $value[0] : $value;
             }
         }
 
