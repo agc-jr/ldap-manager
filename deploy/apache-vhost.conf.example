@@ -7,6 +7,20 @@
 # que veja o tráfego da rede. Além disso, o cookie de sessão só recebe a flag
 # Secure sob HTTPS.
 #
+# Certificado emitido por uma CA pública (Let's Encrypt e afins): se o nome
+# aponta para um IP privado, como costuma ser o caso de uma ferramenta interna,
+# o desafio HTTP-01 NÃO funciona — a CA não consegue alcançar o servidor pela
+# internet. Use o desafio DNS-01, que valida por registro TXT e não depende de
+# o serviço ser acessível de fora:
+#
+#   certbot certonly --manual --preferred-challenges dns \
+#     -d ad-manager.interno.local
+#
+# Com DNS-01 manual a renovação também é manual, a cada 90 dias. Se o seu
+# provedor de DNS tiver API, o plugin correspondente (certbot-dns-*) automatiza
+# isso; sem ele, um wildcard já emitido para o domínio costuma ser o caminho
+# mais tranquilo.
+#
 # Se você ainda não tem certificado, um autoassinado já cifra o tráfego (o
 # navegador vai avisar na primeira visita):
 #
