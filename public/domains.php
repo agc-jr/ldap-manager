@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($dominio === null) {
                 flash('error', 'Domínio não encontrado.');
-            } elseif (trim($_POST['confirmacao'] ?? '') !== $dominio['name']) {
+            } elseif (strcasecmp(trim($_POST["confirmacao"] ?? ""), $dominio["name"]) !== 0) {
                 flash('error', 'A confirmação não confere com o nome do domínio. Nada foi removido.');
             } else {
                 $repo->remover($id);
@@ -336,11 +336,12 @@ require __DIR__ . '/includes/layout_top.php';
             Para confirmar, digite <span class="text-slate-200 font-mono" x-text="excluirAlvo?.name"></span>
           </label>
           <input name="confirmacao" x-model="excluirConfirmacao" autocomplete="off"
+                 autocapitalize="none" autocorrect="off" spellcheck="false"
                  class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm font-mono">
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button type="button" @click="excluirAlvo = null" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
-          <button type="submit" :disabled="excluirConfirmacao !== excluirAlvo?.name"
+          <button type="submit" :disabled="excluirConfirmacao.trim().toLowerCase() !== (excluirAlvo?.name || '').toLowerCase()"
                   class="px-4 py-2 rounded-lg text-sm font-semibold bg-rose-500 text-white disabled:opacity-30 disabled:cursor-not-allowed">
             Remover
           </button>

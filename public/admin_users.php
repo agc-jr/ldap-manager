@@ -76,6 +76,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'domin
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset_senha') {
+    $id    = (int) ($_POST['id'] ?? 0);
+    $nova  = (string) ($_POST['nova_senha'] ?? '');
+
+    $alvo = $pdo->prepare('SELECT username FROM app_users WHERE id = :id');
+    $alvo->execute(['id' => $id]);
+    $dadosAlvo = $alvo->fetch();
+
+    if (!$dadosAlvo) {
+        flash('error', 'Operador não encontrado.');
+    } elseif (mb_strlen($nova) < 10) {
+        flash('error', 'A senha precisa ter pelo menos 10 caracteres.');
+    } else {
+        // must_change_password volta a 1: quem recebe a senha por telefone ou
+        // bilhete precisa trocá-la no primeiro acesso, senão a senha que o
+        // administrador conhece continua valendo.
+        $pdo->prepare(
+            'UPDATE app_users SET password_hash = :h, must_change_password = 1 WHERE id = :id'
+        )->execute(['h' => password_hash($nova, PASSWORD_BCRYPT), 'id' => $id]);
+
+        AuditLogger::log((int) $me['id'], $me['username'], 'operator.reset_password', 'app_user', $dadosAlvo['username']);
+        flash('success', "Senha de \"{$dadosAlvo['username']}\" redefinida. A troca será exigida no próximo acesso.");
+    }
+
+    header('Location: admin_users.php');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle') {
     $id = (int) ($_POST['id'] ?? 0);
     if ($id !== (int) $me['id']) {
@@ -106,6 +134,7 @@ require __DIR__ . '/includes/layout_top.php';
        papelNovo: 'operator',
        dominiosAlvo: null,
        dominiosMarcados: [],
+       senhaAlvo: null,
        editarDominios(id, nome, ids) {
          this.dominiosAlvo = { id, nome };
          // Cópia: mexer nas caixas não deve alterar a tabela por trás do modal
@@ -169,6 +198,12 @@ require __DIR__ . '/includes/layout_top.php';
               <?php if ($u['role'] !== 'admin'): ?>
                 <button @click="editarDominios(<?= (int) $u['id'] ?>, <?= htmlspecialchars(json_encode($u['username']), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode($dominiosPorUsuario[(int) $u['id']] ?? []), ENT_QUOTES) ?>)"
                         class="text-xs text-indigo-300 hover:text-indigo-200">Domínios</button>
+              <?php endif; ?>
+              <?php if ((int) $u['id'] === (int) $me['id']): ?>
+                <a href="change_password.php" class="text-xs text-indigo-300 hover:text-indigo-200">Trocar minha senha</a>
+              <?php else: ?>
+                <button @click="senhaAlvo = <?= htmlspecialchars(json_encode(['id' => (int) $u['id'], 'nome' => $u['username']]), ENT_QUOTES) ?>"
+                        class="text-xs text-indigo-300 hover:text-indigo-200">Resetar senha</button>
               <?php endif; ?>
               <form method="post" class="inline" onsubmit="return confirm('Confirma a alteração de status?');">
                 <input type="hidden" name="action" value="toggle">
@@ -236,12 +271,51 @@ require __DIR__ . '/includes/layout_top.php';
 
         <div>
           <label class="block text-xs text-slate-400 mb-1">Senha inicial</label>
-          <input type="text" name="password" required class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+          <div class="campo-com-botao">
+            <input type="text" id="senha_novo_operador" name="password" required class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+            <button type="button" class="botao-gerar" @click="gerarSenha('senha_novo_operador')">gerar</button>
+          </div>
           <p class="text-[11px] text-slate-500 mt-1">Será exigida a troca no primeiro acesso.</p>
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button type="button" @click="showCreate = false" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
           <button type="submit" class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-400 text-slate-950 text-sm font-semibold">Criar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: resetar a senha de um colega -->
+  <div x-show="senhaAlvo !== null" x-cloak class="fixed inset-0 z-30 flex items-center justify-center modal-overlay p-4">
+    <div class="modal-panel w-full max-w-sm p-6" @click.outside="senhaAlvo = null">
+      <h2 class="text-base font-semibold mb-1">Resetar senha de acesso</h2>
+      <p class="text-xs text-slate-500 mb-4">
+        Operador: <span class="text-slate-300" x-text="senhaAlvo?.nome"></span>
+      </p>
+
+      <div class="rounded-xl px-4 py-3 mb-4 text-xs bg-slate-500/10 text-slate-300 ring-1 ring-white/10">
+        Esta é a senha de acesso <strong>à ferramenta</strong>, não a do domínio.
+        Para redefinir a senha de um usuário do AD, use a tela Usuários.
+      </div>
+
+      <form method="post" class="space-y-3">
+        <input type="hidden" name="action" value="reset_senha">
+        <input type="hidden" name="id" :value="senhaAlvo?.id">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Nova senha</label>
+          <div class="campo-com-botao">
+            <input type="text" id="senha_reset_operador" name="nova_senha" required minlength="10"
+                   autocomplete="new-password"
+                   class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+            <button type="button" class="botao-gerar" @click="gerarSenha('senha_reset_operador')">gerar</button>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-1">
+            Mínimo de 10 caracteres. Ele será obrigado a trocá-la no próximo acesso.
+          </p>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" @click="senhaAlvo = null" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-400 text-slate-950 text-sm font-semibold">Redefinir</button>
         </div>
       </form>
     </div>

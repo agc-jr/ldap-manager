@@ -45,9 +45,25 @@ final class PasswordPolicy
 
         $categorias = self::contarCategorias($senha);
         if ($categorias < self::CATEGORIAS_EXIGIDAS) {
-            $problemas[] = 'precisa combinar pelo menos ' . self::CATEGORIAS_EXIGIDAS
-                . ' destes quatro tipos: letra maiúscula, letra minúscula, número e símbolo'
-                . " (a senha informada tem {$categorias})";
+            $faltando = [];
+            if (!preg_match('/\p{Lu}/u', $senha)) {
+                $faltando[] = 'letra maiúscula';
+            }
+            if (!preg_match('/\p{Ll}/u', $senha)) {
+                $faltando[] = 'letra minúscula';
+            }
+            if (!preg_match('/\d/u', $senha)) {
+                $faltando[] = 'número';
+            }
+            if (!preg_match('/[^\p{L}\d]/u', $senha)) {
+                $faltando[] = 'símbolo';
+            }
+
+            // Dizer o que falta é mais útil que repetir a regra: bastam 3 dos 4
+            // tipos, então quem tem maiúscula, minúscula e número já passou —
+            // símbolo nunca é obrigatório.
+            $problemas[] = 'falta variedade de caracteres. Acrescente ' . implode(' ou ', $faltando)
+                . ' (bastam 3 dos 4 tipos: maiúscula, minúscula, número, símbolo)';
         }
 
         if ($login !== '' && mb_stripos($senha, $login) !== false) {
@@ -82,9 +98,9 @@ final class PasswordPolicy
      */
     public static function descricao(?int $minimoDoDominio = null): string
     {
-        return 'Mínimo de ' . ($minimoDoDominio ?? self::comprimentoMinimo()) . ' caracteres, combinando pelo menos '
-            . self::CATEGORIAS_EXIGIDAS . ' tipos entre maiúscula, minúscula, número e símbolo. '
-            . 'Não pode conter o nome do usuário.';
+        return 'Mínimo de ' . ($minimoDoDominio ?? self::comprimentoMinimo())
+            . ' caracteres, com maiúscula, minúscula e número — o símbolo é opcional. '
+            . 'Não pode conter o nome do usuário. Exemplo: Escola2026';
     }
 
     public static function comprimentoMinimo(): int

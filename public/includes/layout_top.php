@@ -63,6 +63,50 @@ if ($user['id']) {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/css/app.css">
+<script>
+/*
+ * Gera uma senha que atende à política do domínio (maiúscula, minúscula,
+ * número e símbolo) e a mostra em texto claro no campo. Digitar uma senha
+ * válida à mão é a parte chata de criar usuário — e é onde se perde tempo
+ * batendo em "Constraint violation".
+ *
+ * Evita caracteres ambíguos (O/0, l/1) porque essa senha costuma ser ditada
+ * ou anotada num papel antes do primeiro acesso.
+ */
+function gerarSenha(campoId) {
+  var maiusculas = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  var minusculas = 'abcdefghijkmnpqrstuvwxyz';
+  var numeros    = '23456789';
+  var simbolos   = '!@#$%*-_+';
+  var todos = maiusculas + minusculas + numeros + simbolos;
+
+  function sorteia(conjunto) {
+    var i = crypto.getRandomValues(new Uint32Array(1))[0] % conjunto.length;
+    return conjunto[i];
+  }
+
+  // Um de cada tipo garante a política; o resto completa o comprimento.
+  var senha = [sorteia(maiusculas), sorteia(minusculas), sorteia(numeros), sorteia(simbolos)];
+  while (senha.length < 14) {
+    senha.push(sorteia(todos));
+  }
+
+  // Embaralha para os tipos obrigatórios não ficarem sempre nas mesmas posições.
+  for (var i = senha.length - 1; i > 0; i--) {
+    var j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    var t = senha[i]; senha[i] = senha[j]; senha[j] = t;
+  }
+
+  var campo = document.getElementById(campoId);
+  if (campo) {
+    campo.type = 'text';          // precisa ser vista para ser repassada
+    campo.value = senha.join('');
+    campo.dispatchEvent(new Event('input', { bubbles: true })); // avisa o Alpine
+    campo.focus();
+    campo.select();
+  }
+}
+</script>
 </head>
 <body class="bg-slate-950 text-slate-100 font-[Inter] antialiased">
 <div class="min-h-screen flex" x-data="{ menuAberto: false }" @keydown.escape.window="menuAberto = false">

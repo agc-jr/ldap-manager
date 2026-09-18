@@ -65,7 +65,7 @@ try {
                     // precisa existir aqui: esconder na interface não protege
                     // contra um POST montado à mão.
                     flash('error', 'Apenas administradores da ferramenta podem excluir contas do domínio.');
-                } elseif ($confirmou !== $sam) {
+                } elseif (strcasecmp($confirmou, $sam) !== 0) {
                     flash('error', 'A confirmação não confere com o nome de usuário. Nada foi excluído.');
                 } else {
                     $target = $repo->findBySamAccountName($sam);
@@ -307,7 +307,10 @@ require __DIR__ . '/includes/layout_top.php';
         </div>
         <div>
           <label class="block text-xs text-slate-400 mb-1">Senha inicial</label>
-          <input type="text" name="password" required class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+          <div class="campo-com-botao">
+            <input type="text" id="senha_novo_usuario" name="password" required class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+            <button type="button" class="botao-gerar" @click="gerarSenha('senha_novo_usuario')">gerar</button>
+          </div>
           <p class="text-[11px] text-slate-500 mt-1">O usuário será obrigado a trocar essa senha no primeiro login.</p>
           <p class="text-[11px] text-amber-400/70 mt-1"><?= htmlspecialchars(\App\Ldap\PasswordPolicy::descricao()) ?></p>
         </div>
@@ -355,11 +358,12 @@ require __DIR__ . '/includes/layout_top.php';
             Para confirmar, digite <span class="text-slate-200 font-mono" x-text="excluirAlvo?.sam"></span>
           </label>
           <input type="text" name="confirmacao" x-model="excluirConfirmacao" autocomplete="off"
+                 autocapitalize="none" autocorrect="off" spellcheck="false"
                  class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm font-mono">
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button type="button" @click="fecharExclusao()" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
-          <button type="submit" :disabled="excluirConfirmacao !== excluirAlvo?.sam"
+          <button type="submit" :disabled="excluirConfirmacao.trim().toLowerCase() !== (excluirAlvo?.sam || '').toLowerCase()"
                   class="px-4 py-2 rounded-lg text-sm font-semibold bg-rose-500 text-white disabled:opacity-30 disabled:cursor-not-allowed">
             Excluir definitivamente
           </button>
@@ -379,7 +383,10 @@ require __DIR__ . '/includes/layout_top.php';
         <input type="hidden" name="sam" :value="resetTarget">
         <div>
           <label class="block text-xs text-slate-400 mb-1">Nova senha</label>
-          <input type="text" name="new_password" required class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+          <div class="campo-com-botao">
+            <input type="text" id="senha_reset" name="new_password" required class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+            <button type="button" class="botao-gerar" @click="gerarSenha('senha_reset')">gerar</button>
+          </div>
           <p class="text-[11px] text-amber-400/70 mt-1"><?= htmlspecialchars(\App\Ldap\PasswordPolicy::descricao()) ?></p>
         </div>
         <div class="flex justify-end gap-2 pt-2">
