@@ -1,25 +1,65 @@
-# Exemplo de VirtualHost isolado, acessível apenas pela rede interna.
-# Ajuste ServerName, DocumentRoot e a faixa de IP conforme seu ambiente.
+# Exemplo de VirtualHost para o AD Manager Web.
+# Ajuste ServerName, DocumentRoot, caminhos do certificado e a faixa de IP.
+#
+# Por que HTTPS mesmo numa rede interna: a ferramenta transmite senhas do
+# domínio — a de quem opera e cada senha definida ou redefinida para usuários
+# do AD. Em HTTP elas trafegam em texto claro, legíveis para qualquer máquina
+# que veja o tráfego da rede. Além disso, o cookie de sessão só recebe a flag
+# Secure sob HTTPS.
+#
+# Se você ainda não tem certificado, um autoassinado já cifra o tráfego (o
+# navegador vai avisar na primeira visita):
+#
+#   openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
+#     -keyout /etc/ssl/private/ldap-manager.key \
+#     -out    /etc/ssl/certs/ldap-manager.crt \
+#     -subj "/CN=ad-manager.interno.local" \
+#     -addext "subjectAltName=DNS:ad-manager.interno.local"
 
+# HTTP existe apenas para redirecionar.
 <VirtualHost *:80>
     ServerName ad-manager.interno.local
+
+    RewriteEngine On
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}$1 [R=301,L]
+
+    ErrorLog ${APACHE_LOG_DIR}/ldap-manager-error.log
+    CustomLog ${APACHE_LOG_DIR}/ldap-manager-access.log combined
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName ad-manager.interno.local
     DocumentRoot /var/www/ldap-manager/public
+
+    SSLEngine on
+    SSLCertificateFile    /etc/ssl/certs/ldap-manager.crt
+    SSLCertificateKeyFile /etc/ssl/private/ldap-manager.key
+    # SSLCertificateChainFile /etc/ssl/certs/ldap-manager-chain.crt
+
+    SSLProtocol -all +TLSv1.2 +TLSv1.3
+    SSLHonorCipherOrder off
 
     <Directory /var/www/ldap-manager/public>
         Options -Indexes +FollowSymLinks
         AllowOverride None
-        Require all granted
 
-        # Restringe o acesso apenas à rede interna (ajuste a faixa de IP)
+        # Restringe à rede interna (ajuste a faixa)
         Require ip 10.0.0.0/8
         Require ip 127.0.0.1
     </Directory>
 
-    # Nada fora de /public deve ser acessível via HTTP
+    # Nada fora de public/ deve ser acessível: config/, src/, sql/, bin/ e .git
     <DirectoryMatch "^/var/www/ldap-manager/(?!public)">
         Require all denied
     </DirectoryMatch>
 
-    ErrorLog ${APACHE_LOG_DIR}/ldap-manager-error.log
-    CustomLog ${APACHE_LOG_DIR}/ldap-manager-access.log combined
+    # Comece com max-age curto e só aumente quando a renovação do certificado
+    # estiver comprovada: durante o período anunciado o navegador recusa HTTP
+    # neste domínio, e voltar atrás exige limpar o estado em cada máquina.
+    Header always set Strict-Transport-Security "max-age=300"
+
+    ServerSignature Off
+
+    ErrorLog ${APACHE_LOG_DIR}/ldap-manager-ssl-error.log
+    CustomLog ${APACHE_LOG_DIR}/ldap-manager-ssl-access.log combined
 </VirtualHost>
