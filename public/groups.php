@@ -15,6 +15,7 @@ $appUser = Auth::user();
 $ldapError = null;
 $groups = [];
 $allUsers = [];
+$ouDosGrupos = null;
 
 try {
     $ldap = ActiveDomain::conectar();
@@ -70,7 +71,24 @@ try {
     }
 
     $groups = $groupRepo->all();
-    usort($groups, fn($a, $b) => strcasecmp($a['cn'] ?? '', $b['cn'] ?? ''));
+
+    // Marca quem pode ser alterado antes de ordenar: os editáveis vêm primeiro,
+    // porque são a minoria (2 de 39, aqui) e é neles que se trabalha. Deixá-los
+    // em ordem alfabética junto com o resto obrigava a caçar na lista.
+    $ouDosGrupos = $ldap->opcao('default_group_ou');
+
+    foreach ($groups as &$grupo) {
+        $grupo['editavel'] = (!is_string($ouDosGrupos) || $ouDosGrupos === '')
+            ? true // sem OU configurada não há como saber; não prejulga
+            : str_ends_with(mb_strtolower((string) ($grupo['dn'] ?? '')), mb_strtolower($ouDosGrupos));
+    }
+    unset($grupo);
+
+    usort($groups, static function (array $a, array $b): int {
+        // Editáveis primeiro; dentro de cada bloco, ordem alfabética.
+        return ($b['editavel'] <=> $a['editavel'])
+            ?: strcasecmp($a['cn'] ?? '', $b['cn'] ?? '');
+    });
 
     $allUsers = $userRepo->all();
     usort($allUsers, fn($a, $b) => strcasecmp($a['sAMAccountName'] ?? '', $b['sAMAccountName'] ?? ''));
@@ -91,19 +109,9 @@ require __DIR__ . '/includes/layout_top.php';
   <?php else: ?>
 
   <?php
-    // Grupos fora da OU delegada existem no diretório e aparecem aqui, mas o
-    // AD recusa alterá-los — de propósito. Marcar isso na tela evita descobrir
-    // por tentativa e erro, que foi o que aconteceu antes desta mudança.
-    $ouGrupos = $ldap->opcao('default_group_ou');
-
-    $gerenciavel = static function (array $g) use ($ouGrupos): bool {
-        if (!is_string($ouGrupos) || $ouGrupos === '') {
-            return true; // sem OU configurada, não há como saber: não prejulga
-        }
-        return str_ends_with(mb_strtolower((string) ($g['dn'] ?? '')), mb_strtolower($ouGrupos));
-    };
-
-    $totalGerenciaveis = count(array_filter($groups, $gerenciavel));
+    // A marcação de editável e a ordenação acontecem junto com a busca, acima.
+    $ouGrupos = $ouDosGrupos;
+    $totalGerenciaveis = count(array_filter($groups, static fn (array $g): bool => !empty($g['editavel'])));
   ?>
 
   <?php if (is_string($ouGrupos) && $ouGrupos !== '' && $totalGerenciaveis < count($groups)): ?>
@@ -123,7 +131,7 @@ require __DIR__ . '/includes/layout_top.php';
   <?php endif; ?>
 
   <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-    <?php foreach ($groups as $g): $cn = $g['cn'] ?? ''; $editavel = $gerenciavel($g); ?>
+    <?php foreach ($groups as $g): $cn = $g['cn'] ?? ''; $editavel = !empty($g["editavel"]); ?>
       <div class="card p-5 <?= $editavel ? '' : 'opacity-60' ?>">
         <div class="flex items-center justify-between mb-3">
           <div>
