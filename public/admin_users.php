@@ -76,6 +76,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'domin
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'editar') {
+    $id       = (int) ($_POST['id'] ?? 0);
+    $fullName = trim($_POST['full_name'] ?? '');
+    $email    = trim($_POST['email'] ?? '');
+    $role     = in_array($_POST['role'] ?? '', ['admin', 'operator'], true) ? $_POST['role'] : null;
+
+    $alvo = $pdo->prepare('SELECT username, role FROM app_users WHERE id = :id');
+    $alvo->execute(['id' => $id]);
+    $dadosAlvo = $alvo->fetch();
+
+    $admins = (int) $pdo->query("SELECT COUNT(*) FROM app_users WHERE role = 'admin' AND is_active = 1")->fetchColumn();
+
+    if (!$dadosAlvo) {
+        flash('error', 'Operador não encontrado.');
+    } elseif ($fullName === '') {
+        flash('error', 'O nome não pode ficar em branco.');
+    } elseif ($role === null) {
+        flash('error', 'Papel inválido.');
+    } elseif ($id === (int) $me['id'] && $role !== $dadosAlvo['role']) {
+        // Rebaixar a si mesmo tira o acesso a esta própria tela; a pessoa
+        // ficaria sem como voltar atrás.
+        flash('error', 'Você não pode alterar o seu próprio papel. Peça a outro administrador.');
+    } elseif ($dadosAlvo['role'] === 'admin' && $role === 'operator' && $admins <= 1) {
+        // Sem nenhum admin, ninguém cadastra operadores nem domínios, e a
+        // recuperação exigiria mexer no banco à mão.
+        flash('error', 'Este é o único administrador ativo. Promova outro antes de rebaixá-lo.');
+    } else {
+        $pdo->prepare(
+            'UPDATE app_users SET full_name = :f, email = :e, role = :r WHERE id = :id'
+        )->execute([
+            'f'  => $fullName,
+            'e'  => $email !== '' ? $email : null,
+            'r'  => $role,
+            'id' => $id,
+        ]);
+
+        // Trocar para operador sem domínios liberados deixaria a pessoa sem
+        // enxergar nada; o vínculo é tratado no botão Domínios.
+        AuditLogger::log((int) $me['id'], $me['username'], 'operator.update', 'app_user', $dadosAlvo['username'], [
+            'nome' => $fullName, 'papel' => $role, 'papel_anterior' => $dadosAlvo['role'],
+        ]);
+
+        flash('success', "Dados de \"{$dadosAlvo['username']}\" atualizados.");
+    }
+
+    header('Location: admin_users.php');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset_senha') {
     $id    = (int) ($_POST['id'] ?? 0);
     $nova  = (string) ($_POST['nova_senha'] ?? '');
@@ -135,6 +184,7 @@ require __DIR__ . '/includes/layout_top.php';
        dominiosAlvo: null,
        dominiosMarcados: [],
        senhaAlvo: null,
+       editando: null,
        editarDominios(id, nome, ids) {
          this.dominiosAlvo = { id, nome };
          // Cópia: mexer nas caixas não deve alterar a tabela por trás do modal
@@ -199,6 +249,15 @@ require __DIR__ . '/includes/layout_top.php';
                 <button @click="editarDominios(<?= (int) $u['id'] ?>, <?= htmlspecialchars(json_encode($u['username']), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode($dominiosPorUsuario[(int) $u['id']] ?? []), ENT_QUOTES) ?>)"
                         class="text-xs text-indigo-300 hover:text-indigo-200">Domínios</button>
               <?php endif; ?>
+              <button @click="editando = <?= htmlspecialchars(json_encode([
+                        'id'        => (int) $u['id'],
+                        'username'  => $u['username'],
+                        'full_name' => $u['full_name'],
+                        'email'     => $u['email'] ?? '',
+                        'role'      => $u['role'],
+                        'ehVoce'    => (int) $u['id'] === (int) $me['id'],
+                      ]), ENT_QUOTES) ?>"
+                      class="text-xs text-indigo-300 hover:text-indigo-200">Editar</button>
               <?php if ((int) $u['id'] === (int) $me['id']): ?>
                 <a href="change_password.php" class="text-xs text-indigo-300 hover:text-indigo-200">Trocar minha senha</a>
               <?php else: ?>
@@ -280,6 +339,62 @@ require __DIR__ . '/includes/layout_top.php';
         <div class="flex justify-end gap-2 pt-2">
           <button type="button" @click="showCreate = false" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
           <button type="submit" class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-400 text-slate-950 text-sm font-semibold">Criar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: editar dados do operador -->
+  <div x-show="editando !== null" x-cloak class="fixed inset-0 z-30 flex items-center justify-center modal-overlay p-4">
+    <div class="modal-panel w-full max-w-md p-6" @click.outside="editando = null">
+      <h2 class="text-base font-semibold mb-1">Editar operador</h2>
+      <p class="text-xs text-slate-500 mb-4">
+        Usuário: <span class="text-slate-300 font-mono" x-text="editando?.username"></span>
+      </p>
+
+      <form method="post" class="space-y-3">
+        <input type="hidden" name="action" value="editar">
+        <input type="hidden" name="id" :value="editando?.id">
+
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Nome completo</label>
+          <input name="full_name" required :value="editando?.full_name"
+                 class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">E-mail</label>
+          <input type="email" name="email" :value="editando?.email"
+                 class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm">
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Papel</label>
+          <select name="role" :disabled="editando?.ehVoce"
+                  class="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm disabled:opacity-50">
+            <option value="operator" :selected="editando?.role === 'operator'">Operador (só gerencia LDAP)</option>
+            <option value="admin" :selected="editando?.role === 'admin'">Administrador (gerencia operadores)</option>
+          </select>
+          <template x-if="editando?.ehVoce">
+            <p class="text-[11px] text-slate-500 mt-1">
+              Você não pode alterar o próprio papel — se rebaixasse a si mesmo, perderia
+              o acesso a esta tela e não teria como voltar atrás.
+            </p>
+          </template>
+          <!-- Sem o campo, o papel chegaria vazio e o handler recusaria a edição -->
+          <template x-if="editando?.ehVoce">
+            <input type="hidden" name="role" :value="editando?.role">
+          </template>
+        </div>
+
+        <p class="text-[11px] text-slate-500">
+          O nome de usuário não pode ser alterado: ele identifica a pessoa no histórico
+          de auditoria já gravado.
+        </p>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" @click="editando = null" class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancelar</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-400 text-slate-950 text-sm font-semibold">Salvar</button>
         </div>
       </form>
     </div>
