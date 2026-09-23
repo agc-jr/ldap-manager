@@ -52,8 +52,36 @@ final class UserRepository
         $entry['groups'] = is_array($memberOf) ? array_map([self::class, 'cnFromDn'], $memberOf) : ($memberOf ? [self::cnFromDn($memberOf)] : []);
 
         $entry['password_expired'] = ($entry['pwdLastSet'] ?? '1') === '0';
+        $entry['last_logon'] = self::filetimeParaUnix($entry['lastLogonTimestamp'] ?? null);
 
         return $entry;
+    }
+
+    /**
+     * Converte o formato de data do Active Directory para timestamp Unix.
+     *
+     * O AD conta intervalos de 100 nanossegundos desde 01/01/1601; o Unix conta
+     * segundos desde 01/01/1970. Daí a divisão e a diferença entre as épocas.
+     *
+     * Devolve null quando a conta nunca foi usada: o AD registra isso ora como
+     * 0, ora como o maior inteiro de 64 bits, e ambos precisam virar "nunca" em
+     * vez de uma data absurda em 1601 ou no ano 30828.
+     */
+    public static function filetimeParaUnix(mixed $filetime): ?int
+    {
+        if ($filetime === null || $filetime === '') {
+            return null;
+        }
+
+        $valor = (int) $filetime;
+
+        if ($valor <= 0 || $valor === 9223372036854775807) {
+            return null;
+        }
+
+        $unix = intdiv($valor, 10000000) - 11644473600;
+
+        return $unix > 0 ? $unix : null;
     }
 
     public static function cnFromDn(string $dn): string

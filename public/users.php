@@ -146,6 +146,12 @@ $usuariosParaJs = array_map(static function (array $u): array {
         'trocaSenha' => (bool) ($u['password_expired'] ?? false),
         'grupos'     => implode(', ', $u['groups'] ?? []),
         'busca'      => mb_strtolower(trim($sam . ' ' . $nome . ' ' . $email), 'UTF-8'),
+        // Já formatado aqui: o JS receberia um timestamp e teria de repetir a
+        // mesma lógica de "nunca" e de fuso.
+        'ultimoAcesso'  => $u['last_logon'] !== null ? date('d/m/Y', $u['last_logon']) : null,
+        'diasSemAcesso' => $u['last_logon'] !== null
+            ? (int) floor((time() - $u['last_logon']) / 86400)
+            : null,
     ];
 }, $users);
 
@@ -204,6 +210,7 @@ require __DIR__ . '/includes/layout_top.php';
           <th class="px-5 py-3">E-mail</th>
           <th class="px-5 py-3">Status</th>
           <th class="px-5 py-3">Grupos</th>
+          <th class="px-5 py-3">Último acesso</th>
           <th class="px-5 py-3 text-right">Ações</th>
         </tr>
       </thead>
@@ -222,6 +229,16 @@ require __DIR__ . '/includes/layout_top.php';
               </template>
             </td>
             <td class="px-5 py-3 text-slate-400 text-xs" x-text="u.grupos || '—'"></td>
+            <td class="px-5 py-3 text-xs whitespace-nowrap">
+              <template x-if="u.ultimoAcesso">
+                <span :class="u.diasSemAcesso > 90 ? 'text-amber-400/80' : 'text-slate-400'"
+                      :title="u.diasSemAcesso + ' dia(s) atrás'"
+                      x-text="u.ultimoAcesso"></span>
+              </template>
+              <template x-if="!u.ultimoAcesso">
+                <span class="text-slate-600" title="A conta nunca foi usada para entrar">nunca</span>
+              </template>
+            </td>
             <td class="px-5 py-3 text-right space-x-2 whitespace-nowrap">
               <button @click="resetTarget = u.sam"
                       class="text-xs text-indigo-300 hover:text-indigo-200">Resetar senha</button>
@@ -241,7 +258,7 @@ require __DIR__ . '/includes/layout_top.php';
         </template>
         <template x-if="filtrados.length === 0">
           <tr>
-            <td colspan="6" class="px-5 py-10 text-center text-sm text-slate-500">
+            <td colspan="7" class="px-5 py-10 text-center text-sm text-slate-500">
               Nenhum usuário encontrado para <span class="text-slate-300" x-text="'“' + q + '”'"></span>.
             </td>
           </tr>
