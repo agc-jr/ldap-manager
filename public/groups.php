@@ -144,13 +144,13 @@ require __DIR__ . '/includes/layout_top.php';
             </p>
             <p class="text-xs text-slate-500"><?= $g['member_count'] ?> membro(s)</p>
           </div>
-          <button @click="open = (open === <?= json_encode($cn) ?> ? null : <?= json_encode($cn) ?>)"
+          <button @click="open = (open === <?= htmlspecialchars(json_encode($cn), ENT_QUOTES) ?> ? null : <?= htmlspecialchars(json_encode($cn), ENT_QUOTES) ?>)"
                   class="text-xs text-indigo-300 hover:text-indigo-200">
-            <span x-text="open === <?= json_encode($cn) ?> ? 'Fechar' : 'Ver membros'"></span>
+            <span x-text="open === <?= htmlspecialchars(json_encode($cn), ENT_QUOTES) ?> ? 'Fechar' : 'Ver membros'"></span>
           </button>
         </div>
 
-        <div x-show="open === <?= json_encode($cn) ?>" x-cloak class="border-t border-white/5 pt-3 mt-1 space-y-2">
+        <div x-show="open === <?= htmlspecialchars(json_encode($cn), ENT_QUOTES) ?>" x-cloak class="border-t border-white/5 pt-3 mt-1 space-y-2">
           <?php if (empty($g['members'])): ?>
             <p class="text-xs text-slate-500">Nenhum membro.</p>
           <?php else: foreach ($g['members'] as $memberDn): ?>
@@ -170,7 +170,7 @@ require __DIR__ . '/includes/layout_top.php';
           <?php endforeach; endif; ?>
 
           <?php if ($editavel): ?>
-            <button @click="addTo = <?= json_encode($cn) ?>" class="mt-2 text-xs text-cyan-300 hover:text-cyan-200">+ adicionar membro</button>
+            <button @click="addTo = <?= htmlspecialchars(json_encode($cn), ENT_QUOTES) ?>" class="mt-2 text-xs text-cyan-300 hover:text-cyan-200">+ adicionar membro</button>
           <?php endif; ?>
         </div>
       </div>
