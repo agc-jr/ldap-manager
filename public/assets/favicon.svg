@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AD Manager">
+  <!--
+    Mesma identidade do cabeçalho: quadrado arredondado com gradiente
+    indigo -> ciano e as letras em tom escuro.
+
+    Desenhado em 64x64 para que, reduzido a 16x16 na aba do navegador, as duas
+    letras ainda se distingam: por isso o traço é grosso e não há detalhe fino.
+  -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+
+  <text x="32" y="33"
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-family="Inter, 'Segoe UI', system-ui, -apple-system, sans-serif"
+        font-size="30"
+        font-weight="800"
+        letter-spacing="-1"
+        fill="#020617">AD</text>
+</svg>

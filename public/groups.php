@@ -21,29 +21,50 @@ try {
     $groupRepo = new GroupRepository($ldap);
     $userRepo = new UserRepository($ldap);
 
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_member') {
-        $groupCn = trim($_POST['group_cn'] ?? '');
-        $sam = trim($_POST['sam'] ?? '');
-        $group = $groupRepo->findByCn($groupCn);
-        $user = $userRepo->findBySamAccountName($sam);
-        if ($group && $user) {
-            $groupRepo->addMember($group['dn'], $user['dn']);
-            AuditLogger::log((int) $appUser['id'], $appUser['username'], 'group.add_member', 'ldap_group', $groupCn, ['user' => $sam]);
-            flash('success', "\"{$sam}\" adicionado ao grupo \"{$groupCn}\".");
-        }
-        header('Location: groups.php');
-        exit;
-    }
+    // Cada ação trata o próprio erro e volta com a mensagem. Antes, um grupo
+    // não encontrado fazia o if falhar em silêncio — a tela recarregava sem
+    // dizer nada — e uma recusa do diretório virava "Erro ao consultar o LDAP",
+    // que descreve o problema errado.
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $acao = $_POST['action'] ?? '';
 
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'remove_member') {
-        $groupCn = trim($_POST['group_cn'] ?? '');
-        $memberDn = trim($_POST['member_dn'] ?? '');
-        $group = $groupRepo->findByCn($groupCn);
-        if ($group) {
-            $groupRepo->removeMember($group['dn'], $memberDn);
-            AuditLogger::log((int) $appUser['id'], $appUser['username'], 'group.remove_member', 'ldap_group', $groupCn, ['member_dn' => $memberDn]);
-            flash('success', "Membro removido do grupo \"{$groupCn}\".");
+        try {
+            if ($acao === 'add_member') {
+                $groupCn = trim($_POST['group_cn'] ?? '');
+                $sam     = trim($_POST['sam'] ?? '');
+                $group   = $groupRepo->findByCn($groupCn);
+                $user    = $userRepo->findBySamAccountName($sam);
+
+                if (!$group) {
+                    flash('error', "Grupo \"{$groupCn}\" não foi encontrado no diretório.");
+                } elseif (!$user) {
+                    flash('error', "Usuário \"{$sam}\" não foi encontrado no diretório.");
+                } else {
+                    $groupRepo->addMember($group['dn'], $user['dn']);
+                    AuditLogger::log((int) $appUser['id'], $appUser['username'], 'group.add_member', 'ldap_group', $groupCn, ['user' => $sam]);
+                    flash('success', "\"{$sam}\" adicionado ao grupo \"{$groupCn}\".");
+                }
+            }
+
+            if ($acao === 'remove_member') {
+                $groupCn  = trim($_POST['group_cn'] ?? '');
+                $memberDn = trim($_POST['member_dn'] ?? '');
+                $group    = $groupRepo->findByCn($groupCn);
+
+                if (!$group) {
+                    flash('error', "Grupo \"{$groupCn}\" não foi encontrado no diretório.");
+                } elseif ($memberDn === '') {
+                    flash('error', 'Membro não informado.');
+                } else {
+                    $groupRepo->removeMember($group['dn'], $memberDn);
+                    AuditLogger::log((int) $appUser['id'], $appUser['username'], 'group.remove_member', 'ldap_group', $groupCn, ['member_dn' => $memberDn]);
+                    flash('success', "Membro removido do grupo \"{$groupCn}\".");
+                }
+            }
+        } catch (\Throwable $e) {
+            flash('error', GroupRepository::explicarFalha($e, trim($_POST['group_cn'] ?? ''), $ldap));
         }
+
         header('Location: groups.php');
         exit;
     }
@@ -69,12 +90,50 @@ require __DIR__ . '/includes/layout_top.php';
     </div>
   <?php else: ?>
 
+  <?php
+    // Grupos fora da OU delegada existem no diretório e aparecem aqui, mas o
+    // AD recusa alterá-los — de propósito. Marcar isso na tela evita descobrir
+    // por tentativa e erro, que foi o que aconteceu antes desta mudança.
+    $ouGrupos = $ldap->opcao('default_group_ou');
+
+    $gerenciavel = static function (array $g) use ($ouGrupos): bool {
+        if (!is_string($ouGrupos) || $ouGrupos === '') {
+            return true; // sem OU configurada, não há como saber: não prejulga
+        }
+        return str_ends_with(mb_strtolower((string) ($g['dn'] ?? '')), mb_strtolower($ouGrupos));
+    };
+
+    $totalGerenciaveis = count(array_filter($groups, $gerenciavel));
+  ?>
+
+  <?php if (is_string($ouGrupos) && $ouGrupos !== '' && $totalGerenciaveis < count($groups)): ?>
+    <p class="text-xs text-slate-500 mb-4">
+      <?= $totalGerenciaveis ?> de <?= count($groups) ?> grupos podem ser alterados por aqui.
+      Os demais são internos do domínio e ficam somente leitura, para que ninguém
+      se promova a administrador pela ferramenta.
+    </p>
+  <?php elseif (!is_string($ouGrupos) || $ouGrupos === ''): ?>
+    <div class="card p-4 mb-4 border-amber-500/30 bg-amber-500/5">
+      <p class="text-xs text-amber-300">
+        Nenhuma <strong>OU padrão de grupos</strong> está configurada para este domínio. Sem ela,
+        adicionar ou remover membros vai falhar em todos os grupos. Configure em
+        <a href="domains.php" class="underline">Domínios</a>.
+      </p>
+    </div>
+  <?php endif; ?>
+
   <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-    <?php foreach ($groups as $g): $cn = $g['cn'] ?? ''; ?>
-      <div class="card p-5">
+    <?php foreach ($groups as $g): $cn = $g['cn'] ?? ''; $editavel = $gerenciavel($g); ?>
+      <div class="card p-5 <?= $editavel ? '' : 'opacity-60' ?>">
         <div class="flex items-center justify-between mb-3">
           <div>
-            <p class="font-medium"><?= htmlspecialchars($cn) ?></p>
+            <p class="font-medium">
+              <?= htmlspecialchars($cn) ?>
+              <?php if (!$editavel): ?>
+                <span class="badge bg-slate-500/10 text-slate-400 ml-1"
+                      title="Fora da unidade organizacional delegada — o diretório recusa alterações">somente leitura</span>
+              <?php endif; ?>
+            </p>
             <p class="text-xs text-slate-500"><?= $g['member_count'] ?> membro(s)</p>
           </div>
           <button @click="open = (open === <?= json_encode($cn) ?> ? null : <?= json_encode($cn) ?>)"
@@ -91,16 +150,20 @@ require __DIR__ . '/includes/layout_top.php';
               <span class="text-slate-300 truncate" title="<?= htmlspecialchars($memberDn) ?>">
                 <?= htmlspecialchars(\App\Ldap\UserRepository::cnFromDn($memberDn)) ?>
               </span>
-              <form method="post" onsubmit="return confirm('Remover este membro do grupo?');">
-                <input type="hidden" name="action" value="remove_member">
-                <input type="hidden" name="group_cn" value="<?= htmlspecialchars($cn) ?>">
-                <input type="hidden" name="member_dn" value="<?= htmlspecialchars($memberDn) ?>">
-                <button type="submit" class="text-rose-300 hover:text-rose-200">remover</button>
-              </form>
+              <?php if ($editavel): ?>
+                <form method="post" onsubmit="return confirm('Remover este membro do grupo?');">
+                  <input type="hidden" name="action" value="remove_member">
+                  <input type="hidden" name="group_cn" value="<?= htmlspecialchars($cn) ?>">
+                  <input type="hidden" name="member_dn" value="<?= htmlspecialchars($memberDn) ?>">
+                  <button type="submit" class="text-rose-300 hover:text-rose-200">remover</button>
+                </form>
+              <?php endif; ?>
             </div>
           <?php endforeach; endif; ?>
 
-          <button @click="addTo = <?= json_encode($cn) ?>" class="mt-2 text-xs text-cyan-300 hover:text-cyan-200">+ adicionar membro</button>
+          <?php if ($editavel): ?>
+            <button @click="addTo = <?= json_encode($cn) ?>" class="mt-2 text-xs text-cyan-300 hover:text-cyan-200">+ adicionar membro</button>
+          <?php endif; ?>
         </div>
       </div>
     <?php endforeach; ?>

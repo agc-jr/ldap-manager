@@ -45,6 +45,32 @@ final class GroupRepository
         return $entry;
     }
 
+    /**
+     * O diretório responde "Insufficient access" sem dizer por quê. Quase
+     * sempre o motivo é o mesmo: o grupo está fora da unidade organizacional
+     * delegada — o que é proposital, e não um defeito a corrigir. Grupos como
+     * "Domain Admins" ficam fora de alcance justamente para que um operador
+     * não consiga se promover a administrador do domínio pela interface.
+     */
+    public static function explicarFalha(\Throwable $e, string $groupCn, LdapConnection $ldap): string
+    {
+        $msg = $e->getMessage();
+
+        if (stripos($msg, 'Insufficient access') === false) {
+            return $msg;
+        }
+
+        $ou = $ldap->opcao('default_group_ou');
+        $onde = is_string($ou) && $ou !== ''
+            ? "Apenas grupos dentro de \"{$ou}\" podem ser alterados por aqui."
+            : 'Nenhuma unidade organizacional de grupos foi configurada para este domínio, '
+                . 'então a conta de serviço não tem onde escrever.';
+
+        return "O diretório recusou alterar o grupo \"{$groupCn}\": a conta de serviço não tem permissão "
+            . "sobre ele. {$onde} Grupos internos do domínio (Domain Admins, Administrators e afins) "
+            . 'ficam fora de alcance de propósito, para que ninguém se promova a administrador pela ferramenta.';
+    }
+
     public function addMember(string $groupDn, string $userDn): void
     {
         $this->ldap->modifyAdd($groupDn, ['member' => $userDn]);
